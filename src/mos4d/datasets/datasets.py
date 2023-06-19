@@ -3,55 +3,64 @@
 # @author    Benedikt Mersch     [mersch@igg.uni-bonn.de]
 # Copyright (c) 2022 Benedikt Mersch, all rights reserved
 
-import numpy as np
-import yaml
 import os
-import copy
-import torch
+import yaml
+import numpy as np
+from tqdm import tqdm
 from torch.utils.data import Dataset, DataLoader
 from pytorch_lightning import LightningDataModule
 
-from mos4d.datasets.utils import load_poses, load_calib, load_files
-from mos4d.datasets.augmentation import (
-    shift_point_cloud,
-    rotate_point_cloud,
-    jitter_point_cloud,
-    random_flip_point_cloud,
-    random_scale_point_cloud,
-    rotate_perturbation_point_cloud,
-)
 
-
-class KittiSequentialModule(LightningDataModule):
-    """A Pytorch Lightning module for Sequential KITTI data"""
-
+class BacchusModule(LightningDataModule):
     def __init__(self, cfg):
-        """Method to initizalize the KITTI dataset class
-
-        Args:
-          cfg: config dict
-
-        Returns:
-          None
-        """
-        super(KittiSequentialModule, self).__init__()
+        super(BacchusModule, self).__init__()
         self.cfg = cfg
 
     def prepare_data(self):
         pass
 
-    def setup(self, stage=None):
-        """Dataloader and iterators for training, validation and test data"""
+    def split_data(self):
+        #TODO get the path from the environment 
+        scans_dir = self.cfg['DATA']['SCANS_DIR']
+        poses_dir = self.cfg['DATA']['POSES_DIR']
+        
+        print('Scans dir: %s' % scans_dir)
+        print('Poses dir: %s' % poses_dir)
+        '''
+        It is critical to have them sorted as the scans and poses are saved with
+        their time stamps, so the sort make sure the scans are tied to the correct
+        poses
+        '''
+        scans = sorted(os.listdir(scans_dir))
+        poses = sorted(os.listdir(poses_dir))
+
+        assert len(scans) == len(poses), "Scans [%d] and poses [%d] must have the same length" % (len(scans), len(poses))
+
+        #stack the scans and poses into single numpy array column-wise
+        self.scans_poses = np.column_stack((scans, poses)) 
+
+        # Set a random seed for reproducibility
+        np.random.seed(self.cfg['DATA']['SEED'])
+
+        # Get a random permutation of indices
+        indices = np.random.permutation(len(scans))
+
+        #split the indices into train and val a good ratio for this would be 80% and 20%
+        #for now, will do the train and val, the test data will be done later 
+        train_split_indices, val_split_indices = np.split(indices, [int(0.8*len(indices))])  
+
+        return train_split_indices, val_split_indices
+
+    def setup(self):
+        # split the [scans,poses] into train and validate set based on the indices 
+        train_split, val_split = self.split_data()
 
         ########## Point dataset splits
-        train_set = KittiSequentialDataset(self.cfg, split="train")
+        train_set = BacchusDataset(self.cfg, train_split, self.scans_poses)
 
-        val_set = KittiSequentialDataset(self.cfg, split="val")
-
-        test_set = KittiSequentialDataset(self.cfg, split="test")
+        val_set = BacchusDataset(self.cfg, val_split, self.scans_poses)
 
         ########## Generate dataloaders and iterables
-
         self.train_loader = DataLoader(
             dataset=train_set,
             batch_size=self.cfg["TRAIN"]["BATCH_SIZE"],
@@ -76,23 +85,6 @@ class KittiSequentialModule(LightningDataModule):
         )
         self.valid_iter = iter(self.valid_loader)
 
-        self.test_loader = DataLoader(
-            dataset=test_set,
-            batch_size=self.cfg["TRAIN"]["BATCH_SIZE"],
-            collate_fn=self.collate_fn,
-            shuffle=False,
-            num_workers=self.cfg["DATA"]["NUM_WORKER"],
-            pin_memory=True,
-            drop_last=False,
-            timeout=0,
-        )
-        self.test_iter = iter(self.test_loader)
-
-        print(
-            "Loaded {:d} training, {:d} validation and {:d} test samples.".format(
-                len(train_set), len(val_set), (len(test_set))
-            )
-        )
 
     def train_dataloader(self):
         return self.train_loader
@@ -100,52 +92,24 @@ class KittiSequentialModule(LightningDataModule):
     def val_dataloader(self):
         return self.valid_loader
 
-    def test_dataloader(self):
-        return self.test_loader
-
     @staticmethod
     def collate_fn(batch):
+        assert False, "Here I think where I need to stack the points and labels as one tensor for 4DMOS"
         meta = [item[0] for item in batch]
         past_point_clouds = [item[1] for item in batch]
         past_labels = [item[2] for item in batch]
         return [meta, past_point_clouds, past_labels]
 
-
-class KittiSequentialDataset(Dataset):
+class BacchusDataset(Dataset):
     """Dataset class for point cloud prediction"""
 
-    def __init__(self, cfg, split):
-        """Read parameters and scan data
-
-        Args:
-            cfg (dict): Config parameters
-            split (str): Data split
-
-        Raises:
-            Exception: [description]
-        """
+    def __init__(self, cfg, split_indices, scans_poses):
         self.cfg = cfg
-        self.root_dir = os.environ.get("DATA")
+        self.dataset_size = len(split_indices)
 
-        # Pose information
-        self.transform = self.cfg["DATA"]["TRANSFORM"]
-        self.poses = {}
-        self.filename_poses = cfg["DATA"]["POSES"]
-
-        # Semantic information
-        self.semantic_config = yaml.safe_load(open(cfg["DATA"]["SEMANTIC_CONFIG_FILE"]))
-
-        self.n_past_steps = self.cfg["MODEL"]["N_PAST_STEPS"]
-
-        self.split = split
-        if self.split == "train":
-            self.sequences = self.cfg["DATA"]["SPLIT"]["TRAIN"]
-        elif self.split == "val":
-            self.sequences = self.cfg["DATA"]["SPLIT"]["VAL"]
-        elif self.split == "test":
-            self.sequences = self.cfg["DATA"]["SPLIT"]["TEST"]
-        else:
-            raise Exception("Split must be train/val/test")
+        self.map_pth = cfg['DATA']['MAP_PTH']
+        self.scans_dir = cfg['DATA']['SCANS_DIR']
+        self.poses_dir = cfg['DATA']['POSES_DIR']
 
         # Check if data and prediction frequency matches
         self.dt_pred = self.cfg["MODEL"]["DELTA_T_PREDICTION"]
@@ -157,152 +121,65 @@ class KittiSequentialDataset(Dataset):
             self.dt_pred / self.dt_data, round(self.dt_pred / self.dt_data), atol=1e-5
         ), "DELTA_T_PREDICTION needs to be a multiple of DELTA_T_DATA!"
         self.skip = round(self.dt_pred / self.dt_data)
+        
+        #Load map data points, data structure: [x,y,z,label]
+        self.map = np.loadtxt(self.map_pth)
 
-        self.augment = self.cfg["TRAIN"]["AUGMENTATION"] and split == "train"
+        self.scans = scans_poses[split_indices,0]  #0: scans column
+        self.poses = scans_poses[split_indices, 1]  #1: poses column
 
-        # Create a dict filenames that maps from a sequence number to a list of files in the dataset
-        self.filenames = {}
+        self.scans_data = []
+        self.poses_data = []
 
-        # Create a dict idx_mapper that maps from a dataset idx to a sequence number and the index of the current scan
-        self.dataset_size = 0
-        self.idx_mapper = {}
-        idx = 0
-        for seq in self.sequences:
-            seqstr = "{0:02d}".format(int(seq))
-            path_to_seq = os.path.join(self.root_dir, seqstr)
+        for scan, pose in tqdm(zip(self.scans, self.poses), total=len(self.scans), desc='Processing scans'):
+            scan_pth = os.path.join(self.scans_dir, scan)
+            pose_pth = os.path.join(self.poses_dir, pose)
 
-            scan_path = os.path.join(path_to_seq, "velodyne")
-            self.filenames[seq] = load_files(scan_path)
-            if self.transform:
-                self.poses[seq] = self.read_poses(path_to_seq)
-                assert len(self.poses[seq]) == len(self.filenames[seq])
-            else:
-                self.poses[seq] = []
+            #load scan and poses:
+            scan_data = np.loadtxt(scan_pth)
+            pose_data = np.loadtxt(pose_pth, delimiter=',')
 
-            # Get number of sequences based on number of past steps
-            n_samples_sequence = max(
-                0, len(self.filenames[seq]) - self.skip * (self.n_past_steps - 1)
-            )
-
-            # Add to idx mapping
-            for sample_idx in range(n_samples_sequence):
-                scan_idx = self.skip * (self.n_past_steps - 1) + sample_idx
-                self.idx_mapper[idx] = (seq, scan_idx)
-                idx += 1
-            self.dataset_size += n_samples_sequence
+            self.scans_data.append(scan_data)
+            self.poses_data.append(pose_data)
 
     def __len__(self):
         return self.dataset_size
-
+        
     def __getitem__(self, idx):
-        """Load point clouds and get sequence
+        scan_data = self.scans_data[idx]
+        pose_data = self.poses_data[idx]
 
-        Args:
-            idx (int): Sample index
+        # Sampling center
+        center = pose_data[:3, 3]
 
-        Returns:
-            item: Dataset dictionary item
-        """
-        seq, scan_idx = self.idx_mapper[idx]
+        scan_idx = self.select_points_within_radius(scan_data[:,:3], center)
+        submap_idx = self.select_points_within_radius(self.map[:,:3], center)
 
-        # Load past point clouds
-        from_idx = scan_idx - self.skip * (self.n_past_steps - 1)
-        to_idx = scan_idx + 1
-        past_indices = list(range(from_idx, to_idx, self.skip))
-        past_files = self.filenames[seq][from_idx : to_idx : self.skip]
-        list_past_point_clouds = [self.read_point_cloud(f) for f in past_files]
-        for i, pcd in enumerate(list_past_point_clouds):
+        scan_points, scan_labels = scan_data[scan_idx, :3], scan_data[scan_idx, 3]
+        submap_points, submap_labels = self.map[submap_idx, :3], self.map[submap_idx, 3]
 
-            # Transform to current viewpoint
-            if self.transform:
-                from_pose = self.poses[seq][past_indices[i]]
-                to_pose = self.poses[seq][past_indices[-1]]
-                pcd = self.transform_point_cloud(pcd, from_pose, to_pose)
-            time_index = i - self.n_past_steps + 1
-            timestamp = round(time_index * self.dt_pred, 3)
-            list_past_point_clouds[i] = self.timestamp_tensor(pcd, timestamp)
+        return submap_points, scan_points, submap_labels, scan_labels
 
-        past_point_clouds = torch.cat(list_past_point_clouds, dim=0)
 
-        # Load past labels
-        label_files = [
-            os.path.join(self.root_dir, str(seq).zfill(2), "labels", str(i).zfill(6) + ".label")
-            for i in past_indices
-        ]
+    def select_points_within_radius(self, coordinates, center):
+        # Calculate the Euclidean distance from each point to the center
+        distances = np.sqrt(np.sum((coordinates - center)**2, axis=1))
+        # Select the indexes of points within the radius
+        indexes = np.where(distances <= self.cfg['DATA']['RADIUS'])[0]
+        return indexes
 
-        list_past_labels = [self.read_labels(f) for f in label_files]
-        for i, labels in enumerate(list_past_labels):
-            time_index = i - self.n_past_steps + 1
-            timestamp = round(time_index * self.dt_pred, 3)
-            list_past_labels[i] = self.timestamp_tensor(labels, timestamp)
-        past_labels = torch.cat(list_past_labels, dim=0)
 
-        if self.augment:
-            past_point_clouds, past_labels = self.augment_data(past_point_clouds, past_labels)
+if __name__ == '__main__':
+    #The following is mainly for testing 
+    config_pth = '/home/ibrahim/neptune/4DMOS/config/config.yaml'
+    cfg = yaml.safe_load(open(config_pth))
 
-        meta = (seq, scan_idx, past_indices)
-        return [meta, past_point_clouds, past_labels]
+    bm = BacchusModule(cfg)
+    bm.setup()
 
-    def transform_point_cloud(self, past_point_clouds, from_pose, to_pose):
-        transformation = torch.Tensor(np.linalg.inv(to_pose) @ from_pose)
-        NP = past_point_clouds.shape[0]
-        xyz1 = torch.hstack([past_point_clouds, torch.ones(NP, 1)]).T
-        past_point_clouds = (transformation @ xyz1).T[:, :3]
-        return past_point_clouds
+    train_dataloader = bm.train_dataloader()
+    
+    for batch in train_dataloader:
+        print(batch)
 
-    def augment_data(self, past_point_clouds, past_labels):
-        past_point_clouds = rotate_point_cloud(past_point_clouds)
-        past_point_clouds = rotate_perturbation_point_cloud(past_point_clouds)
-        past_point_clouds = jitter_point_cloud(past_point_clouds)
-        past_point_clouds = shift_point_cloud(past_point_clouds)
-        past_point_clouds = random_flip_point_cloud(past_point_clouds)
-        past_point_clouds = random_scale_point_cloud(past_point_clouds)
-        return past_point_clouds, past_labels
 
-    def read_point_cloud(self, filename):
-        """Load point clouds from .bin file"""
-        point_cloud = np.fromfile(filename, dtype=np.float32)
-        point_cloud = torch.tensor(point_cloud.reshape((-1, 4)))
-        point_cloud = point_cloud[:, :3]
-        return point_cloud
-
-    def read_labels(self, filename):
-        """Load moving object labels from .label file"""
-        if os.path.isfile(filename):
-            labels = np.fromfile(filename, dtype=np.uint32)
-            labels = labels.reshape((-1))
-            labels = labels & 0xFFFF  # Mask semantics in lower half
-            mapped_labels = copy.deepcopy(labels)
-            for k, v in self.semantic_config["learning_map"].items():
-                mapped_labels[labels == k] = v
-            selected_labels = torch.Tensor(mapped_labels.astype(np.float32)).long()
-            selected_labels = selected_labels.reshape((-1, 1))
-            return selected_labels
-        else:
-            return torch.Tensor(1, 1).long()
-
-    @staticmethod
-    def timestamp_tensor(tensor, time):
-        """Add time as additional column to tensor"""
-        n_points = tensor.shape[0]
-        time = time * torch.ones((n_points, 1))
-        timestamped_tensor = torch.hstack([tensor, time])
-        return timestamped_tensor
-
-    def read_poses(self, path_to_seq):
-        pose_file = os.path.join(path_to_seq, self.filename_poses)
-        calib_file = os.path.join(path_to_seq, "calib.txt")
-        poses = np.array(load_poses(pose_file))
-        inv_frame0 = np.linalg.inv(poses[0])
-
-        # load calibrations
-        T_cam_velo = load_calib(calib_file)
-        T_cam_velo = np.asarray(T_cam_velo).reshape((4, 4))
-        T_velo_cam = np.linalg.inv(T_cam_velo)
-
-        # convert kitti poses from camera coord to LiDAR coord
-        new_poses = []
-        for pose in poses:
-            new_poses.append(T_velo_cam.dot(inv_frame0).dot(pose).dot(T_cam_velo))
-        poses = np.array(new_poses)
-        return poses
