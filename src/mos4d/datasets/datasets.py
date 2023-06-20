@@ -158,38 +158,49 @@ class BacchusDataset(Dataset):
         self.scans = scans_poses[split_indices, 0]  # 0: scans column
         self.poses = scans_poses[split_indices, 1]  # 1: poses column
 
+        self.scans_data = []
+        self.poses_data = []
+
+        for scan, pose in tqdm(
+            zip(self.scans, self.poses), total=len(self.scans), desc="Processing scans"
+        ):
+            scan_pth = os.path.join(self.scans_dir, scan)
+            pose_pth = os.path.join(self.poses_dir, pose)
+
+            # load scan and poses:
+            scan_data = np.loadtxt(scan_pth)
+            pose_data = np.loadtxt(pose_pth, delimiter=",")
+
+            self.scans_data.append(scan_data)
+            self.poses_data.append(pose_data)
+
     def __len__(self):
         return self.dataset_size
 
     def __getitem__(self, idx):
-        scan_pth = os.path.join(self.scans_dir, self.scans[idx])
-        pose_pth = os.path.join(self.poses_dir, self.poses[idx])
-
-        # load scan and poses:
-        scan_data = np.loadtxt(scan_pth)
-        pose_data = np.loadtxt(pose_pth, delimiter=",")
+        scan_data = self.scans_data[idx]
+        pose_data = self.poses_data[idx]
 
         # Sampling center
         center = pose_data[:3, 3]
 
-        scan_idx = self.select_points_within_radius(scan_data[:, :3], center)
-        submap_idx = self.select_points_within_radius(self.map[:, :3], center)
+        scan_idx = self.select_points_within_radius(scan_data[:,:3], center)
+        submap_idx = self.select_points_within_radius(self.map[:,:3], center)
 
-        scan_points = torch.tensor(scan_data[scan_idx, :3]).reshape(-1, 3)
-        scan_labels = torch.tensor(scan_data[scan_idx, 3]).reshape(-1, 1)
-        submap_points = torch.tensor(self.map[submap_idx, :3]).reshape(-1, 3)
-        submap_labels = torch.tensor(self.map[submap_idx, 3]).reshape(-1, 1)
+        scan_points, scan_labels = scan_data[scan_idx, :3], scan_data[scan_idx, 3]
+        submap_points, submap_labels = self.map[submap_idx, :3], self.map[submap_idx, 3]
 
         scan_points = self.timestamp_tensor(scan_points, 1)
         submap_points = self.timestamp_tensor(submap_points, 0)
 
         return submap_points, scan_points, submap_labels, scan_labels
 
+
     def select_points_within_radius(self, coordinates, center):
         # Calculate the Euclidean distance from each point to the center
-        distances = np.sqrt(np.sum((coordinates - center) ** 2, axis=1))
+        distances = np.sqrt(np.sum((coordinates - center)**2, axis=1))
         # Select the indexes of points within the radius
-        indexes = np.where(distances <= self.cfg["DATA"]["RADIUS"])[0]
+        indexes = np.where(distances <= self.cfg['DATA']['RADIUS'])[0]
         return indexes
 
     @staticmethod
@@ -201,41 +212,17 @@ class BacchusDataset(Dataset):
         return timestamped_tensor
 
 
-if __name__ == "__main__":
-    # The following is mainly for testing
-    config_pth = "/home/benedikt/projects/ibrahim/4DMOS/config/config.yaml"
+if __name__ == '__main__':
+    #The following is mainly for testing 
+    config_pth = '/home/ibrahim/neptune/4DMOS/config/config.yaml'
     cfg = yaml.safe_load(open(config_pth))
 
     bm = BacchusModule(cfg)
     bm.setup()
 
     train_dataloader = bm.train_dataloader()
+    
+    for batch in train_dataloader:
+        print(batch)
 
-    import open3d as o3d
 
-    for batch in tqdm(train_dataloader):
-        batch_indices = [unique.item() for unique in torch.unique(batch[:, 0])]
-        for b in batch_indices:
-            mask_batch = batch[:, 0] == b
-            mask_scan = batch[:, -2] == 1
-
-            scan_points = batch[torch.logical_and(mask_batch, mask_scan), 1:4]
-            scan_labels = batch[torch.logical_and(mask_batch, mask_scan), -1]
-            map_points = batch[torch.logical_and(mask_batch, ~mask_scan), 1:4]
-            map_labels = batch[torch.logical_and(mask_batch, ~mask_scan), -1]
-
-            # Scan
-            pcd_scan = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(scan_points.numpy()))
-            scan_colors = np.zeros((len(scan_labels), 3))
-            scan_colors[:, 0] = 0.5
-            scan_colors[:, 0] = 0.5 * (1 + scan_labels.numpy())
-            pcd_scan.colors = o3d.utility.Vector3dVector(scan_colors)
-
-            # Map
-            pcd_map = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(map_points.numpy()))
-            map_colors = np.zeros((len(map_labels), 3))
-            map_colors[:, 1] = 0.5
-            map_colors[:, 1] = 0.5 * (1 + map_labels.numpy())
-            pcd_map.colors = o3d.utility.Vector3dVector(map_colors)
-
-            o3d.visualization.draw_geometries([pcd_scan, pcd_map])
