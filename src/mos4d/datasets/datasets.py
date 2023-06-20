@@ -5,6 +5,7 @@
 
 import os
 import yaml
+import torch
 import numpy as np
 from tqdm import tqdm
 from torch.utils.data import Dataset, DataLoader
@@ -94,11 +95,11 @@ class BacchusModule(LightningDataModule):
 
     @staticmethod
     def collate_fn(batch):
-        assert False, "Here I think where I need to stack the points and labels as one tensor for 4DMOS"
-        meta = [item[0] for item in batch]
-        past_point_clouds = [item[1] for item in batch]
-        past_labels = [item[2] for item in batch]
-        return [meta, past_point_clouds, past_labels]
+        map_points  = [item[0] for item in batch]
+        scan_points = [item[1] for item in batch]
+        map_labels  = [item[2] for item in batch]
+        scan_labels = [item[3] for item in batch]
+        return [map_points, scan_points, map_labels, scan_labels]
 
 class BacchusDataset(Dataset):
     """Dataset class for point cloud prediction"""
@@ -158,8 +159,10 @@ class BacchusDataset(Dataset):
         scan_points, scan_labels = scan_data[scan_idx, :3], scan_data[scan_idx, 3]
         submap_points, submap_labels = self.map[submap_idx, :3], self.map[submap_idx, 3]
 
-        return submap_points, scan_points, submap_labels, scan_labels
+        scan_points = self.timestamp_tensor(scan_points, 1)
+        submap_points = self.timestamp_tensor(submap_points, 0)
 
+        return submap_points, scan_points, submap_labels, scan_labels
 
     def select_points_within_radius(self, coordinates, center):
         # Calculate the Euclidean distance from each point to the center
@@ -168,6 +171,13 @@ class BacchusDataset(Dataset):
         indexes = np.where(distances <= self.cfg['DATA']['RADIUS'])[0]
         return indexes
 
+    @staticmethod
+    def timestamp_tensor(tensor, time):
+        """Add time as additional column to tensor"""
+        n_points = tensor.shape[0]
+        time = time * np.ones((n_points, 1))
+        timestamped_tensor = np.hstack([tensor, time])
+        return timestamped_tensor
 
 if __name__ == '__main__':
     #The following is mainly for testing 
