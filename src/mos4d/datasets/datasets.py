@@ -100,10 +100,10 @@ class BacchusModule(LightningDataModule):
     def collate_fn(batch):
         tensor_batch = None
         for i, (
-            scan_points,
             map_points,
-            scan_labels,
+            scan_points,
             map_labels,
+            scan_labels,
         ) in enumerate(batch):
             ones = torch.ones(len(scan_points), 1).type_as(scan_points)
             scan_points = torch.hstack(
@@ -180,9 +180,6 @@ class BacchusDataset(Dataset):
         submap_points = torch.tensor(self.map[submap_idx, :3]).reshape(-1, 3)
         submap_labels = torch.tensor(self.map[submap_idx, 3]).reshape(-1, 1)
 
-        scan_points = self.timestamp_tensor(scan_points, 1)
-        submap_points = self.timestamp_tensor(submap_points, 0)
-
         return submap_points, scan_points, submap_labels, scan_labels
 
     def select_points_within_radius(self, coordinates, center):
@@ -191,14 +188,6 @@ class BacchusDataset(Dataset):
         # Select the indexes of points within the radius
         indexes = np.where(distances <= self.cfg["DATA"]["RADIUS"])[0]
         return indexes
-
-    @staticmethod
-    def timestamp_tensor(tensor, time):
-        """Add time as additional column to tensor"""
-        n_points = tensor.shape[0]
-        time = time * np.ones((n_points, 1))
-        timestamped_tensor = np.hstack([tensor, time])
-        return timestamped_tensor
 
 
 if __name__ == "__main__":
