@@ -6,6 +6,7 @@
 import os
 import yaml
 import numpy as np
+import torch
 from tqdm import tqdm
 from torch.utils.data import Dataset, DataLoader
 from pytorch_lightning import LightningDataModule
@@ -20,39 +21,42 @@ class BacchusModule(LightningDataModule):
         pass
 
     def split_data(self):
-        #TODO get the path from the environment 
-        scans_dir = self.cfg['DATA']['SCANS_DIR']
-        poses_dir = self.cfg['DATA']['POSES_DIR']
-        
-        print('Scans dir: %s' % scans_dir)
-        print('Poses dir: %s' % poses_dir)
-        '''
+        # TODO get the path from the environment
+        scans_dir = self.cfg["DATA"]["SCANS_DIR"]
+        poses_dir = self.cfg["DATA"]["POSES_DIR"]
+
+        print("Scans dir: %s" % scans_dir)
+        print("Poses dir: %s" % poses_dir)
+        """
         It is critical to have them sorted as the scans and poses are saved with
         their time stamps, so the sort make sure the scans are tied to the correct
         poses
-        '''
+        """
         scans = sorted(os.listdir(scans_dir))
         poses = sorted(os.listdir(poses_dir))
 
-        assert len(scans) == len(poses), "Scans [%d] and poses [%d] must have the same length" % (len(scans), len(poses))
+        assert len(scans) == len(poses), "Scans [%d] and poses [%d] must have the same length" % (
+            len(scans),
+            len(poses),
+        )
 
-        #stack the scans and poses into single numpy array column-wise
-        self.scans_poses = np.column_stack((scans, poses)) 
+        # stack the scans and poses into single numpy array column-wise
+        self.scans_poses = np.column_stack((scans, poses))
 
         # Set a random seed for reproducibility
-        np.random.seed(self.cfg['DATA']['SEED'])
+        np.random.seed(self.cfg["DATA"]["SEED"])
 
         # Get a random permutation of indices
         indices = np.random.permutation(len(scans))
 
-        #split the indices into train and val a good ratio for this would be 80% and 20%
-        #for now, will do the train and val, the test data will be done later 
-        train_split_indices, val_split_indices = np.split(indices, [int(0.8*len(indices))])  
+        # split the indices into train and val a good ratio for this would be 80% and 20%
+        # for now, will do the train and val, the test data will be done later
+        train_split_indices, val_split_indices = np.split(indices, [int(0.8 * len(indices))])
 
         return train_split_indices, val_split_indices
 
     def setup(self):
-        # split the [scans,poses] into train and validate set based on the indices 
+        # split the [scans,poses] into train and validate set based on the indices
         train_split, val_split = self.split_data()
 
         ########## Point dataset splits
@@ -85,7 +89,6 @@ class BacchusModule(LightningDataModule):
         )
         self.valid_iter = iter(self.valid_loader)
 
-
     def train_dataloader(self):
         return self.train_loader
 
@@ -94,11 +97,37 @@ class BacchusModule(LightningDataModule):
 
     @staticmethod
     def collate_fn(batch):
-        assert False, "Here I think where I need to stack the points and labels as one tensor for 4DMOS"
-        meta = [item[0] for item in batch]
-        past_point_clouds = [item[1] for item in batch]
-        past_labels = [item[2] for item in batch]
-        return [meta, past_point_clouds, past_labels]
+        tensor_batch = None
+        for i, (
+            scan_points,
+            map_points,
+            scan_labels,
+            map_labels,
+        ) in enumerate(batch):
+            ones = torch.ones(len(scan_points), 1).type_as(scan_points)
+            scan_points = torch.hstack(
+                [
+                    i * ones,
+                    scan_points,
+                    1.0 * ones,
+                    scan_labels,
+                ]
+            )
+
+            ones = torch.ones(len(map_points), 1).type_as(map_points)
+            map_points = torch.hstack(
+                [
+                    i * ones,
+                    map_points,
+                    0.0 * ones,
+                    map_labels,
+                ]
+            )
+
+            tensor = torch.vstack([scan_points, map_points])
+            tensor_batch = tensor if tensor_batch is None else torch.vstack([tensor_batch, tensor])
+        return tensor_batch
+
 
 class BacchusDataset(Dataset):
     """Dataset class for point cloud prediction"""
@@ -107,9 +136,9 @@ class BacchusDataset(Dataset):
         self.cfg = cfg
         self.dataset_size = len(split_indices)
 
-        self.map_pth = cfg['DATA']['MAP_PTH']
-        self.scans_dir = cfg['DATA']['SCANS_DIR']
-        self.poses_dir = cfg['DATA']['POSES_DIR']
+        self.map_pth = cfg["DATA"]["MAP_PTH"]
+        self.scans_dir = cfg["DATA"]["SCANS_DIR"]
+        self.poses_dir = cfg["DATA"]["POSES_DIR"]
 
         # Check if data and prediction frequency matches
         self.dt_pred = self.cfg["MODEL"]["DELTA_T_PREDICTION"]
@@ -121,30 +150,32 @@ class BacchusDataset(Dataset):
             self.dt_pred / self.dt_data, round(self.dt_pred / self.dt_data), atol=1e-5
         ), "DELTA_T_PREDICTION needs to be a multiple of DELTA_T_DATA!"
         self.skip = round(self.dt_pred / self.dt_data)
-        
-        #Load map data points, data structure: [x,y,z,label]
+
+        # Load map data points, data structure: [x,y,z,label]
         self.map = np.loadtxt(self.map_pth)
 
-        self.scans = scans_poses[split_indices,0]  #0: scans column
-        self.poses = scans_poses[split_indices, 1]  #1: poses column
+        self.scans = scans_poses[split_indices, 0]  # 0: scans column
+        self.poses = scans_poses[split_indices, 1]  # 1: poses column
 
         self.scans_data = []
         self.poses_data = []
 
-        for scan, pose in tqdm(zip(self.scans, self.poses), total=len(self.scans), desc='Processing scans'):
+        for scan, pose in tqdm(
+            zip(self.scans, self.poses), total=len(self.scans), desc="Processing scans"
+        ):
             scan_pth = os.path.join(self.scans_dir, scan)
             pose_pth = os.path.join(self.poses_dir, pose)
 
-            #load scan and poses:
+            # load scan and poses:
             scan_data = np.loadtxt(scan_pth)
-            pose_data = np.loadtxt(pose_pth, delimiter=',')
+            pose_data = np.loadtxt(pose_pth, delimiter=",")
 
             self.scans_data.append(scan_data)
             self.poses_data.append(pose_data)
 
     def __len__(self):
         return self.dataset_size
-        
+
     def __getitem__(self, idx):
         scan_data = self.scans_data[idx]
         pose_data = self.poses_data[idx]
