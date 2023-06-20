@@ -52,7 +52,7 @@ class BacchusModule(LightningDataModule):
 
         return train_split_indices, val_split_indices
 
-    def setup(self):
+    def setup(self, stage=None):
         # split the [scans,poses] into train and validate set based on the indices 
         train_split, val_split = self.split_data()
 
