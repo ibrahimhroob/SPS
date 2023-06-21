@@ -19,7 +19,6 @@ class MOSNet(LightningModule):
         self.lr_epoch = hparams["TRAIN"]["LR_EPOCH"]
         self.lr_decay = hparams["TRAIN"]["LR_DECAY"]
         self.weight_decay = hparams["TRAIN"]["WEIGHT_DECAY"]
-        self.n_past_steps = hparams["MODEL"]["N_PAST_STEPS"]
         self.loss = torch.nn.MSELoss()
         self.model = MOSModel(hparams)
 
@@ -54,7 +53,7 @@ class MOSNet(LightningModule):
 class MOSModel(nn.Module):
     def __init__(self, cfg: dict):
         super().__init__()
-        ds = cfg["DATA"]["VOXEL_SIZE"]
+        ds = cfg["MODEL"]["VOXEL_SIZE"]
         self.quantization = torch.Tensor([1.0, ds, ds, ds, 1.0])
         self.MinkUNet = CustomMinkUNet(in_channels=1, out_channels=1, D=4)
         self.sigmoid = torch.nn.Sigmoid()

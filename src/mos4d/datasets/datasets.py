@@ -17,53 +17,40 @@ class BacchusModule(LightningDataModule):
     def __init__(self, cfg):
         super(BacchusModule, self).__init__()
         self.cfg = cfg
+        self.root_dir = str(os.environ.get("DATA"))
 
-    def prepare_data(self):
-        pass
+        sequence = str(self.cfg["TRAIN"]["SEQUENCE"])
+        scans_dir = os.path.join(self.root_dir, "Bacchus", "sequence", sequence, "scans")
+        poses_dir = os.path.join(self.root_dir, "Bacchus", "sequence", sequence, "poses")
 
-    def split_data(self):
-        # TODO get the path from the environment
-        scans_dir = self.cfg["DATA"]["SCANS_DIR"]
-        poses_dir = self.cfg["DATA"]["POSES_DIR"]
+        self.scans = sorted([os.path.join(scans_dir, file) for file in os.listdir(scans_dir)])
+        self.poses = sorted([os.path.join(poses_dir, file) for file in os.listdir(poses_dir)])
 
-        print("Scans dir: %s" % scans_dir)
-        print("Poses dir: %s" % poses_dir)
-        """
-        It is critical to have them sorted as the scans and poses are saved with
-        their time stamps, so the sort make sure the scans are tied to the correct
-        poses
-        """
-        scans = sorted(os.listdir(scans_dir))
-        poses = sorted(os.listdir(poses_dir))
-
-        assert len(scans) == len(poses), "Scans [%d] and poses [%d] must have the same length" % (
-            len(scans),
-            len(poses),
-        )
-
+    def setup(self, stage=None):
         # stack the scans and poses into single numpy array column-wise
-        self.scans_poses = np.column_stack((scans, poses))
+        self.files = np.column_stack((self.scans, self.poses))
 
         # Set a random seed for reproducibility
         np.random.seed(self.cfg["DATA"]["SEED"])
 
         # Get a random permutation of indices
-        indices = np.random.permutation(len(scans))
+        indices = np.random.permutation(len(self.scans))
 
         # split the indices into train and val a good ratio for this would be 80% and 20%
         # for now, will do the train and val, the test data will be done later
-        train_split_indices, val_split_indices = np.split(indices, [int(0.8 * len(indices))])
-
-        return train_split_indices, val_split_indices
-
-    def setup(self, stage=None):
-        # split the [scans,poses] into train and validate set based on the indices
-        train_split, val_split = self.split_data()
+        train_indices, val_indices = np.split(indices, [int(0.8 * len(indices))])
 
         ########## Point dataset splits
-        train_set = BacchusDataset(self.cfg, train_split, self.scans_poses)
+        map_str = self.cfg["TRAIN"]["MAP"]
+        map_path = os.path.join(self.root_dir, "Bacchus", "maps", map_str)
 
-        val_set = BacchusDataset(self.cfg, val_split, self.scans_poses)
+        train_set = BacchusDataset(
+            self.cfg, self.files[train_indices, 0], self.files[train_indices, 1], map_path
+        )
+
+        val_set = BacchusDataset(
+            self.cfg, self.files[val_indices, 0], self.files[val_indices, 1], map_path
+        )
 
         ########## Generate dataloaders and iterables
         self.train_loader = DataLoader(
@@ -116,37 +103,27 @@ class BacchusModule(LightningDataModule):
 class BacchusDataset(Dataset):
     """Dataset class for point cloud prediction"""
 
-    def __init__(self, cfg, split_indices, scans_poses):
+    def __init__(self, cfg, scans, poses, map):
         self.cfg = cfg
-        self.dataset_size = len(split_indices)
+        self.scans = scans
+        self.poses = poses
 
-        self.map_pth = cfg["DATA"]["MAP_PTH"]
-        self.scans_dir = cfg["DATA"]["SCANS_DIR"]
-        self.poses_dir = cfg["DATA"]["POSES_DIR"]
+        assert len(scans) == len(poses), "Scans [%d] and poses [%d] must have the same length" % (
+            len(scans),
+            len(poses),
+        )
 
-        # Check if data and prediction frequency matches
-        self.dt_pred = self.cfg["MODEL"]["DELTA_T_PREDICTION"]
-        self.dt_data = self.cfg["DATA"]["DELTA_T_DATA"]
-        assert (
-            self.dt_pred >= self.dt_data
-        ), "DELTA_T_PREDICTION needs to be larger than DELTA_T_DATA!"
-        assert np.isclose(
-            self.dt_pred / self.dt_data, round(self.dt_pred / self.dt_data), atol=1e-5
-        ), "DELTA_T_PREDICTION needs to be a multiple of DELTA_T_DATA!"
-        self.skip = round(self.dt_pred / self.dt_data)
+        self.dataset_size = len(scans)
 
         # Load map data points, data structure: [x,y,z,label]
-        self.map = np.loadtxt(self.map_pth)
-
-        self.scans = scans_poses[split_indices, 0]  # 0: scans column
-        self.poses = scans_poses[split_indices, 1]  # 1: poses column
+        self.map = np.loadtxt(map)
 
     def __len__(self):
         return self.dataset_size
 
     def __getitem__(self, idx):
-        scan_pth = os.path.join(self.scans_dir, self.scans[idx])
-        pose_pth = os.path.join(self.poses_dir, self.poses[idx])
+        scan_pth = os.path.join(self.scans[idx])
+        pose_pth = os.path.join(self.poses[idx])
 
         # load scan and poses:
         scan_data = np.loadtxt(scan_pth)
@@ -175,7 +152,7 @@ class BacchusDataset(Dataset):
 
 if __name__ == "__main__":
     # The following is mainly for testing
-    config_pth = "/home/ibrahim/neptune/4DMOS/config/config.yaml"
+    config_pth = "config/config.yaml"
     cfg = yaml.safe_load(open(config_pth))
 
     bm = BacchusModule(cfg)

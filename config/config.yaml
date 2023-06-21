@@ -3,29 +3,24 @@ EXPERIMENT:
 
 ##Data
 DATA:
-  MAP_PTH: "/home/ibrahim/neptune/4DMOS/Dataset/Bacchus/maps/april_20_ABEF.asc"
-  SCANS_DIR: "/home/ibrahim/neptune/4DMOS/Dataset/Bacchus/sequence/20220601/scans"
-  POSES_DIR: "/home/ibrahim/neptune/4DMOS/Dataset/Bacchus/sequence/20220601/poses"
   SHUFFLE: True
   SEED: 42
   RADIUS: 50
   NUM_WORKER: 4
-  DELTA_T_DATA: 0.1 # Time between scans in the dataset (0.1s for KITTI)
-  VOXEL_SIZE: 0.1 # Used for discretization in x,y,z when creating a sparse tensor 
  
 ##Training
 TRAIN:
+  SEQUENCE: 20220601
+  MAP: april_20_ABEF.asc
   MAX_EPOCH: 60
   LR: 0.0001
   LR_EPOCH: 1
   LR_DECAY: 0.99
   WEIGHT_DECAY: 0.0001
   BATCH_SIZE: 2
-  ACC_BATCHES: 1
   AUGMENTATION: True
 
 ##Network
 MODEL:
-  DELTA_T_PREDICTION: 0.1 # Temporal resolution of scans
-  N_PAST_STEPS: 2
+  VOXEL_SIZE: 0.1 # Used for discretization in x,y,z when creating a sparse tensor 
 
