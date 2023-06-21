@@ -99,36 +99,18 @@ class BacchusModule(LightningDataModule):
     @staticmethod
     def collate_fn(batch):
         tensor_batch = None
-        for i, (
-            map_points,
-            scan_points,
-            map_labels,
-            scan_labels,
-        ) in enumerate(batch):
-            ones = torch.ones(len(scan_points), 1).type_as(scan_points)
-            scan_points = torch.hstack(
-                [
-                    i * ones,
-                    scan_points,
-                    1.0 * ones,
-                    scan_labels,
-                ]
-            )
 
-            ones = torch.ones(len(map_points), 1).type_as(map_points)
-            map_points = torch.hstack(
-                [
-                    i * ones,
-                    map_points,
-                    0.0 * ones,
-                    map_labels,
-                ]
-            )
+        for i, (map_points, scan_points, map_labels, scan_labels) in enumerate(batch):
+            ones = torch.ones(len(scan_points), 1, dtype=scan_points.dtype)
+            scan_points = torch.hstack([i * ones, scan_points, 1.0 * ones, scan_labels])
+
+            ones = torch.ones(len(map_points), 1, dtype=map_points.dtype)
+            map_points = torch.hstack([i * ones, map_points, 0.0 * ones, map_labels])
 
             tensor = torch.vstack([scan_points, map_points])
             tensor_batch = tensor if tensor_batch is None else torch.vstack([tensor_batch, tensor])
-        return tensor_batch
 
+        return tensor_batch
 
 class BacchusDataset(Dataset):
     """Dataset class for point cloud prediction"""
@@ -192,7 +174,7 @@ class BacchusDataset(Dataset):
 
 if __name__ == "__main__":
     # The following is mainly for testing
-    config_pth = "/home/benedikt/projects/ibrahim/4DMOS/config/config.yaml"
+    config_pth = "/home/ibrahim/neptune/4DMOS/config/config.yaml"
     cfg = yaml.safe_load(open(config_pth))
 
     bm = BacchusModule(cfg)
