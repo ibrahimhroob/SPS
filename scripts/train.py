@@ -39,7 +39,6 @@ import mos4d.models.models as models
     default=None,
 )
 def main(config, weights, checkpoint):
-
     if checkpoint:
         cfg = torch.load(checkpoint)["hyper_parameters"]
     else:
@@ -70,13 +69,17 @@ def main(config, weights, checkpoint):
         log_dir, name=cfg["EXPERIMENT"]["ID"], default_hp_metric=False
     )
 
+    print(torch.cuda.is_available())
     # Setup trainer
     trainer = Trainer(
-        gpus=1,
+        accelerator="gpu",
+        devices=1,
         logger=tb_logger,
         max_epochs=cfg["TRAIN"]["MAX_EPOCH"],
-        accumulate_grad_batches=cfg["TRAIN"]["ACC_BATCHES"],
-        callbacks=[lr_monitor, checkpoint_saver],
+        callbacks=[
+            lr_monitor,
+            checkpoint_saver,
+        ],
     )
 
     # Train!

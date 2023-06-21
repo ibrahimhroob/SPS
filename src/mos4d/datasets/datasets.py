@@ -112,6 +112,7 @@ class BacchusModule(LightningDataModule):
 
         return tensor_batch
 
+
 class BacchusDataset(Dataset):
     """Dataset class for point cloud prediction"""
 
@@ -157,10 +158,10 @@ class BacchusDataset(Dataset):
         scan_idx = self.select_points_within_radius(scan_data[:, :3], center)
         submap_idx = self.select_points_within_radius(self.map[:, :3], center)
 
-        scan_points = torch.tensor(scan_data[scan_idx, :3]).reshape(-1, 3)
-        scan_labels = torch.tensor(scan_data[scan_idx, 3]).reshape(-1, 1)
-        submap_points = torch.tensor(self.map[submap_idx, :3]).reshape(-1, 3)
-        submap_labels = torch.tensor(self.map[submap_idx, 3]).reshape(-1, 1)
+        scan_points = torch.tensor(scan_data[scan_idx, :3]).to(torch.float32).reshape(-1, 3)
+        scan_labels = torch.tensor(scan_data[scan_idx, 3]).to(torch.float32).reshape(-1, 1)
+        submap_points = torch.tensor(self.map[submap_idx, :3]).to(torch.float32).reshape(-1, 3)
+        submap_labels = torch.tensor(self.map[submap_idx, 3]).to(torch.float32).reshape(-1, 1)
 
         return submap_points, scan_points, submap_labels, scan_labels
 
