@@ -24,34 +24,13 @@ import mos4d.models.models as models
     help="path to the config file (.yaml)",
     default="./config/config.yaml",
 )
-@click.option(
-    "--weights",
-    "-w",
-    type=str,
-    help="path to pretrained weights (.ckpt). Use this flag if you just want to load the weights from the checkpoint file without resuming training.",
-    default=None,
-)
-@click.option(
-    "--checkpoint",
-    "-ckpt",
-    type=str,
-    help="path to checkpoint file (.ckpt) to resume training.",
-    default=None,
-)
-def main(config, weights, checkpoint):
-    if checkpoint:
-        cfg = torch.load(checkpoint)["hyper_parameters"]
-    else:
-        cfg = yaml.safe_load(open(config))
+def main(config):
+    cfg = yaml.safe_load(open(config))
 
     # Load data and model
     data = datasets.BacchusModule(cfg)
 
     model = models.MOSNet(cfg)
-    if weights is None:
-        model = models.MOSNet(cfg)
-    else:
-        model = models.MOSNet.load_from_checkpoint(weights, hparams=cfg)
 
     # Add callbacks
     lr_monitor = LearningRateMonitor(logging_interval="step")
@@ -83,7 +62,7 @@ def main(config, weights, checkpoint):
     )
 
     # Train!
-    trainer.fit(model, data, ckpt_path=checkpoint)
+    trainer.fit(model, data)
 
 
 if __name__ == "__main__":
