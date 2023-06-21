@@ -46,7 +46,7 @@ def main(config, weights, checkpoint):
         cfg = yaml.safe_load(open(config))
 
     # Load data and model
-    data = datasets.KittiSequentialModule(cfg)
+    data = datasets.BacchusModule(cfg)
 
     model = models.MOSNet(cfg)
     if weights is None:
