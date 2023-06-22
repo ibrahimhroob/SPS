@@ -4,6 +4,7 @@
 # Copyright (c) 2022 Benedikt Mersch, all rights reserved
 import os
 import torch
+import numpy as np
 import torch.nn as nn
 from pytorch_lightning import LightningModule
 import MinkowskiEngine as ME
@@ -26,9 +27,10 @@ class MOSNet(LightningModule):
     def training_step(self, batch, batch_idx, dataloader_index=0):
         coordinates = batch[:, :5].reshape(-1, 5)
         gt_labels = batch[:, 5].reshape(-1)
+        scan_indices = np.where(coordinates[:, 4].cpu().data.numpy() == 1)[0]
         scores = self.model(coordinates)
-        loss = self.loss(scores, gt_labels)
-        r2 = self.r2score(scores, gt_labels)
+        loss = self.loss(scores[scan_indices], gt_labels[scan_indices])
+        r2 = self.r2score(scores[scan_indices], gt_labels[scan_indices])
         self.log("train_loss", loss.item(), on_step=True)
         self.log("train_r2", r2.item(), on_step=True, prog_bar=True)
 
@@ -38,14 +40,27 @@ class MOSNet(LightningModule):
     def validation_step(self, batch, batch_idx):
         coordinates = batch[:, :5].reshape(-1, 5)
         gt_labels = batch[:, 5].reshape(-1)
+        scan_indices = np.where(coordinates[:, 4].cpu().data.numpy() == 1)[0]
         scores = self.model(coordinates)
-        loss = self.loss(scores, gt_labels)
-        r2 = self.r2score(scores, gt_labels)
+        loss = self.loss(scores[scan_indices], gt_labels[scan_indices])
+        r2 = self.r2score(scores[scan_indices], gt_labels[scan_indices])
         self.log("val_loss", loss.item(), on_step=True)
         self.log("val_r2", r2.item(), on_step=True, prog_bar=True)
 
         torch.cuda.empty_cache()
         return {"val_loss": loss, "val_r2": r2}
+
+    # def predict_step(self, batch, batch_idx):
+    #     coordinates = batch[:, :5].reshape(-1, 5)
+    #     gt_labels = batch[:, 5].reshape(-1)
+    #     scores = self.model(coordinates)
+    #     loss = self.loss(scores, gt_labels)
+    #     r2 = self.r2score(scores, gt_labels)
+    #     self.log("prediction_loss", loss.item(), on_step=True)
+    #     self.log("prediction_r2", r2.item(), on_step=True, prog_bar=True)
+
+    #     torch.cuda.empty_cache()
+    #     return {"prediction_loss": loss, "prediction_r2": r2}
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
