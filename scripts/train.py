@@ -34,10 +34,17 @@ def main(config):
 
     # Add callbacks
     lr_monitor = LearningRateMonitor(logging_interval="step")
-    checkpoint_saver = ModelCheckpoint(
+    checkpoint_saver_loss = ModelCheckpoint(
         monitor="val_loss",
         filename=cfg["EXPERIMENT"]["ID"] + "_{epoch:03d}_{val_moving_iou_step0:.3f}",
         mode="min",
+        save_last=True,
+    )
+
+    checkpoint_saver_r2 = ModelCheckpoint(
+        monitor="val_r2",
+        filename=cfg["EXPERIMENT"]["ID"] + "_{epoch:03d}_{val_moving_iou_step0:.3f}",
+        mode="max",
         save_last=True,
     )
 
@@ -57,7 +64,8 @@ def main(config):
         max_epochs=cfg["TRAIN"]["MAX_EPOCH"],
         callbacks=[
             lr_monitor,
-            checkpoint_saver,
+            checkpoint_saver_loss,
+            # checkpoint_saver_r2,
         ],
     )
 

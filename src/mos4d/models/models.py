@@ -8,7 +8,7 @@ import torch.nn as nn
 from pytorch_lightning import LightningModule
 import MinkowskiEngine as ME
 from mos4d.models.MinkowskiEngine.customminkunet import CustomMinkUNet
-
+from torchmetrics import R2Score
 
 class MOSNet(LightningModule):
     def __init__(self, hparams: dict):
@@ -20,6 +20,7 @@ class MOSNet(LightningModule):
         self.lr_decay = hparams["TRAIN"]["LR_DECAY"]
         self.weight_decay = hparams["TRAIN"]["WEIGHT_DECAY"]
         self.loss = torch.nn.MSELoss()
+        self.r2score = R2Score()
         self.model = MOSModel(hparams)
 
     def training_step(self, batch, batch_idx, dataloader_index=0):
@@ -27,20 +28,24 @@ class MOSNet(LightningModule):
         gt_labels = batch[:, 5].reshape(-1)
         scores = self.model(coordinates)
         loss = self.loss(scores, gt_labels)
+        r2 = self.r2score(scores, gt_labels)
         self.log("train_loss", loss.item(), on_step=True)
+        self.log("train_r2", r2.item(), on_step=True, prog_bar=True)
 
         torch.cuda.empty_cache()
-        return {"loss": loss}
+        return {"loss": loss, "val_r2": r2}
 
     def validation_step(self, batch, batch_idx):
         coordinates = batch[:, :5].reshape(-1, 5)
         gt_labels = batch[:, 5].reshape(-1)
         scores = self.model(coordinates)
         loss = self.loss(scores, gt_labels)
+        r2 = self.r2score(scores, gt_labels)
         self.log("val_loss", loss.item(), on_step=True)
+        self.log("val_r2", r2.item(), on_step=True, prog_bar=True)
 
         torch.cuda.empty_cache()
-        return {"val_loss": loss}
+        return {"val_loss": loss, "val_r2": r2}
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
