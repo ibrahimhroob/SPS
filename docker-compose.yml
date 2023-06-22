@@ -1,4 +1,4 @@
-version: "2.3"
+version: "3"
 services:
   project:
     image: mos4d
@@ -13,3 +13,5 @@ services:
     volumes:
       - ${PWD}/:/mos4d
       - ${DATA}:/mos4d/data
+    stdin_open: true
+    tty: true
