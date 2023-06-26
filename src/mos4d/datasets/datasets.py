@@ -20,11 +20,16 @@ class BacchusModule(LightningDataModule):
         self.root_dir = str(os.environ.get("DATA"))
 
         sequence = str(self.cfg["TRAIN"]["SEQUENCE"])
-        scans_dir = os.path.join(self.root_dir, "Bacchus", "sequence", sequence, "scans")
-        poses_dir = os.path.join(self.root_dir, "Bacchus", "sequence", sequence, "poses")
+        scans_dir = os.path.join(self.root_dir, "sequence", sequence, "scans")
+        poses_dir = os.path.join(self.root_dir, "sequence", sequence, "poses")
 
         self.scans = sorted([os.path.join(scans_dir, file) for file in os.listdir(scans_dir)])
         self.poses = sorted([os.path.join(poses_dir, file) for file in os.listdir(poses_dir)])
+
+        map_str = self.cfg["TRAIN"]["MAP"]
+        self.map_path = os.path.join(self.root_dir, "maps", map_str)
+
+        self.map_transform_pth = os.path.join(self.root_dir, "sequence", sequence, "map_transform")
 
     def setup(self, stage=None):
         # stack the scans and poses into single numpy array column-wise
@@ -41,15 +46,20 @@ class BacchusModule(LightningDataModule):
         train_indices, val_indices = np.split(indices, [int(0.8 * len(indices))])
 
         ########## Point dataset splits
-        map_str = self.cfg["TRAIN"]["MAP"]
-        map_path = os.path.join(self.root_dir, "Bacchus", "maps", map_str)
-
         train_set = BacchusDataset(
-            self.cfg, self.files[train_indices, 0], self.files[train_indices, 1], map_path
+            self.cfg, 
+            self.files[train_indices, 0], 
+            self.files[train_indices, 1],
+            self.map_path, 
+            self.map_transform_pth
         )
 
         val_set = BacchusDataset(
-            self.cfg, self.files[val_indices, 0], self.files[val_indices, 1], map_path
+            self.cfg, 
+            self.files[val_indices, 0], 
+            self.files[val_indices, 1], 
+            self.map_path,
+            self.map_transform_pth
         )
 
         ########## Generate dataloaders and iterables
@@ -103,7 +113,7 @@ class BacchusModule(LightningDataModule):
 class BacchusDataset(Dataset):
     """Dataset class for point cloud prediction"""
 
-    def __init__(self, cfg, scans, poses, map):
+    def __init__(self, cfg, scans, poses, map, map_transform_pth):
         self.cfg = cfg
         self.scans = scans
         self.poses = poses
@@ -115,8 +125,14 @@ class BacchusDataset(Dataset):
 
         self.dataset_size = len(scans)
 
+        # Load map transformation 
+        map_transform = np.loadtxt(map_transform_pth, delimiter=',')
+
         # Load map data points, data structure: [x,y,z,label]
         self.map = np.loadtxt(map)
+
+        # Transform map to the global coordinate frames of the scans
+        self.map[:,:3] = self.transform_point_cloud(self.map[:,:3], np.linalg.inv(map_transform))
 
     def __len__(self):
         return self.dataset_size
@@ -125,9 +141,12 @@ class BacchusDataset(Dataset):
         scan_pth = os.path.join(self.scans[idx])
         pose_pth = os.path.join(self.poses[idx])
 
-        # load scan and poses:
-        scan_data = np.loadtxt(scan_pth)
-        pose_data = np.loadtxt(pose_pth, delimiter=",")
+        # Load scan and poses:
+        scan_data = np.load(scan_pth)
+        pose_data = np.loadtxt(pose_pth, delimiter=',')
+
+        # Transform the scan to its global coordinate
+        scan_data[:,:3] = self.transform_point_cloud(scan_data[:,:3], pose_data)
 
         # Sampling center
         center = pose_data[:3, 3]
@@ -148,6 +167,18 @@ class BacchusDataset(Dataset):
         # Select the indexes of points within the radius
         indexes = np.where(distances <= self.cfg["DATA"]["RADIUS"])[0]
         return indexes
+
+    def transform_point_cloud(self, point_cloud, transformation_matrix):
+        # Convert point cloud to homogeneous coordinates
+        homogeneous_coords = np.hstack((point_cloud, np.ones((point_cloud.shape[0], 1))))
+
+        # Apply transformation matrix
+        transformed_coords = np.dot(homogeneous_coords, transformation_matrix.T)
+
+        # Convert back to Cartesian coordinates
+        transformed_point_cloud = transformed_coords[:, :3] / transformed_coords[:, 3][:, np.newaxis]
+
+        return transformed_point_cloud
 
 
 if __name__ == "__main__":
