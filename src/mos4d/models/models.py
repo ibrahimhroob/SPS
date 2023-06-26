@@ -16,6 +16,7 @@ class MOSNet(LightningModule):
         super().__init__()
         self.save_hyperparameters(hparams)
         self.id = self.hparams["EXPERIMENT"]["ID"]
+        self.seq = self.hparams["TRAIN"]["SEQUENCE"]
         self.lr = self.hparams["TRAIN"]["LR"]
         self.lr_epoch = hparams["TRAIN"]["LR_EPOCH"]
         self.lr_decay = hparams["TRAIN"]["LR_DECAY"]
@@ -23,6 +24,8 @@ class MOSNet(LightningModule):
         self.loss = torch.nn.MSELoss()
         self.r2score = R2Score()
         self.model = MOSModel(hparams)
+
+        self.data_dir = str(os.environ.get("DATA"))
 
     def training_step(self, batch, batch_idx, dataloader_index=0):
         coordinates = batch[:, :5].reshape(-1, 5)
@@ -50,17 +53,40 @@ class MOSNet(LightningModule):
         torch.cuda.empty_cache()
         return {"val_loss": loss, "val_r2": r2}
 
-    # def predict_step(self, batch, batch_idx):
-    #     coordinates = batch[:, :5].reshape(-1, 5)
-    #     gt_labels = batch[:, 5].reshape(-1)
-    #     scores = self.model(coordinates)
-    #     loss = self.loss(scores, gt_labels)
-    #     r2 = self.r2score(scores, gt_labels)
-    #     self.log("prediction_loss", loss.item(), on_step=True)
-    #     self.log("prediction_r2", r2.item(), on_step=True, prog_bar=True)
+    def predict_step(self, batch, batch_idx):
+        coordinates = batch[:, :5].reshape(-1, 5)
+        gt_labels = batch[:, 5].reshape(-1)
+        scan_indices = np.where(coordinates[:, 4].cpu().data.numpy() == 1)[0]
+        scores = self.model(coordinates)
+        loss = self.loss(scores[scan_indices], gt_labels[scan_indices])
+        r2 = self.r2score(scores[scan_indices], gt_labels[scan_indices])
 
-    #     torch.cuda.empty_cache()
-    #     return {"prediction_loss": loss, "prediction_r2": r2}
+        s_path = os.path.join(
+            self.data_dir,
+            'predictions',
+            str(self.seq), 
+            'scans'
+        )
+
+        os.makedirs(s_path, exist_ok=True)
+
+        batch_indices = [unique.item() for unique in torch.unique(batch[:, 0])]
+        for b in batch_indices:
+            mask_batch = batch[:, 0] == b
+            mask_scan = batch[:, -2] == 1
+
+            scan_points = batch[torch.logical_and(mask_batch, mask_scan), 1:4].cpu().data.numpy()
+            scan_labels_gt = batch[torch.logical_and(mask_batch, mask_scan), -1].cpu().data.numpy()
+            scan_labels_hat = scores[scan_indices].cpu().data.numpy()
+
+            assert len(scan_points) == len(scan_labels_gt) == len(scan_labels_hat), "Lengths of arrays are not equal."
+
+            scan_data = np.column_stack((scan_points, scan_labels_gt, scan_labels_hat))
+
+            save_pth = os.path.join(s_path, str(batch_idx) + '_' + str(b) + '.asc')
+            np.savetxt(save_pth, scan_data, fmt='%.3f')
+
+        torch.cuda.empty_cache()
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
