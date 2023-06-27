@@ -7,17 +7,25 @@ DATA:
   SEED: 42
   RADIUS: 50
   NUM_WORKER: 4
- 
+  SPLIT:
+    TRAIN:
+      - '20220420'
+      - '20220601'
+    VAL:
+      - '20220608'
+    TEST:
+      - '20220629'
+      - '20220714'
+
 ##Training
 TRAIN:
-  SEQUENCE: 20220601
-  MAP: april_20_ABEF.asc
+  MAP: april_6_ABEF.asc
   MAX_EPOCH: 60
   LR: 0.0001
   LR_EPOCH: 1
   LR_DECAY: 0.99
   WEIGHT_DECAY: 0.0001
-  BATCH_SIZE: 2
+  BATCH_SIZE: 4
   AUGMENTATION: True
 
 ##Network

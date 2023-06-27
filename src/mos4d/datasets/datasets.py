@@ -19,47 +19,54 @@ class BacchusModule(LightningDataModule):
         self.cfg = cfg
         self.root_dir = str(os.environ.get("DATA"))
 
-        sequence = str(self.cfg["TRAIN"]["SEQUENCE"])
-        scans_dir = os.path.join(self.root_dir, "sequence", sequence, "scans")
-        poses_dir = os.path.join(self.root_dir, "sequence", sequence, "poses")
+        train_seqs = self.cfg['DATA']['SPLIT']['TRAIN']
+        self.train_scans, self.train_poses, self.train_map_tr = self.get_scans_poses(train_seqs)
 
-        self.scans = sorted([os.path.join(scans_dir, file) for file in os.listdir(scans_dir)])
-        self.poses = sorted([os.path.join(poses_dir, file) for file in os.listdir(poses_dir)])
-
+        val_seqs = self.cfg['DATA']['SPLIT']['VAL']
+        self.val_scans, self.val_poses, self.val_map_tr = self.get_scans_poses(val_seqs)
+        
         map_str = self.cfg["TRAIN"]["MAP"]
         self.map_path = os.path.join(self.root_dir, "maps", map_str)
 
-        self.map_transform_pth = os.path.join(self.root_dir, "sequence", sequence, "map_transform")
+    def get_scans_poses(self, seqs):
+        seq_scans = []
+        seq_poses = []
+        map_transform_pth = []
+
+        for sequence in seqs:
+            scans_dir = os.path.join(self.root_dir, "sequence", sequence, "scans")
+            poses_dir = os.path.join(self.root_dir, "sequence", sequence, "poses")
+
+            scans = sorted([os.path.join(scans_dir, file) for file in os.listdir(scans_dir)])
+            poses = sorted([os.path.join(poses_dir, file) for file in os.listdir(poses_dir)])
+
+            map_pth = os.path.join(self.root_dir, "sequence", sequence, "map_transform")
+            paths = [map_pth] * len(scans)
+
+            seq_scans.extend(scans)
+            seq_poses.extend(poses)
+            map_transform_pth.extend(paths)
+
+        assert len(seq_scans) == len(seq_poses) == len(map_transform_pth), 'The length of those arrays should be the same!'
+
+        return seq_scans, seq_poses, map_transform_pth
 
     def setup(self, stage=None):
-        # stack the scans and poses into single numpy array column-wise
-        self.files = np.column_stack((self.scans, self.poses))
-
-        # Set a random seed for reproducibility
-        np.random.seed(self.cfg["DATA"]["SEED"])
-
-        # Get a random permutation of indices
-        indices = np.random.permutation(len(self.scans))
-
-        # split the indices into train and val a good ratio for this would be 80% and 20%
-        # for now, will do the train and val, the test data will be done later
-        train_indices, val_indices = np.split(indices, [int(0.8 * len(indices))])
-
         ########## Point dataset splits
         train_set = BacchusDataset(
             self.cfg, 
-            self.files[train_indices, 0], 
-            self.files[train_indices, 1],
+            self.train_scans, 
+            self.train_poses,
             self.map_path, 
-            self.map_transform_pth
+            self.train_map_tr
         )
 
         val_set = BacchusDataset(
             self.cfg, 
-            self.files[val_indices, 0], 
-            self.files[val_indices, 1], 
+            self.val_scans, 
+            self.val_poses, 
             self.map_path,
-            self.map_transform_pth
+            self.val_map_tr
         )
 
         ########## Generate dataloaders and iterables
@@ -113,10 +120,11 @@ class BacchusModule(LightningDataModule):
 class BacchusDataset(Dataset):
     """Dataset class for point cloud prediction"""
 
-    def __init__(self, cfg, scans, poses, map, map_transform_pth):
+    def __init__(self, cfg, scans, poses, map, map_transform):
         self.cfg = cfg
         self.scans = scans
         self.poses = poses
+        self.map_tr = map_transform
 
         assert len(scans) == len(poses), "Scans [%d] and poses [%d] must have the same length" % (
             len(scans),
@@ -124,15 +132,11 @@ class BacchusDataset(Dataset):
         )
 
         self.dataset_size = len(scans)
-
-        # Load map transformation 
-        map_transform = np.loadtxt(map_transform_pth, delimiter=',')
-
         # Load map data points, data structure: [x,y,z,label]
         self.map = np.loadtxt(map)
 
         # Transform map to the global coordinate frames of the scans
-        self.map[:,:3] = self.transform_point_cloud(self.map[:,:3], np.linalg.inv(map_transform))
+        # self.map[:,:3] = self.transform_point_cloud(self.map[:,:3], np.linalg.inv(map_transform))
 
     def __len__(self):
         return self.dataset_size
@@ -140,13 +144,18 @@ class BacchusDataset(Dataset):
     def __getitem__(self, idx):
         scan_pth = os.path.join(self.scans[idx])
         pose_pth = os.path.join(self.poses[idx])
+        map_tr_pth = os.path.join(self.map_tr[idx])
 
         # Load scan and poses:
         scan_data = np.load(scan_pth)
         pose_data = np.loadtxt(pose_pth, delimiter=',')
 
+        # Load map transformation 
+        map_transform = np.loadtxt(map_tr_pth, delimiter=',')
+
         # Transform the scan to its global coordinate
         scan_data[:,:3] = self.transform_point_cloud(scan_data[:,:3], pose_data)
+        scan_data[:,:3] = self.transform_point_cloud(scan_data[:,:3], map_transform)
 
         # Sampling center
         center = pose_data[:3, 3]
