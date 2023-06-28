@@ -16,7 +16,6 @@ class MOSNet(LightningModule):
         super().__init__()
         self.save_hyperparameters(hparams)
         self.id = self.hparams["EXPERIMENT"]["ID"]
-        self.seq = self.hparams["TRAIN"]["SEQUENCE"]
         self.lr = self.hparams["TRAIN"]["LR"]
         self.lr_epoch = hparams["TRAIN"]["LR_EPOCH"]
         self.lr_decay = hparams["TRAIN"]["LR_DECAY"]

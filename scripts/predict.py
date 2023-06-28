@@ -55,7 +55,7 @@ def main(weights, sequence):
     trainer = Trainer(gpus=1, logger=False)
 
     # Infer!
-    trainer.predict(model, data.train_dataloader())
+    trainer.predict(model, data.val_dataloader())
 
 
 if __name__ == "__main__":

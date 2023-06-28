@@ -25,8 +25,13 @@ TRAIN:
   LR_EPOCH: 1
   LR_DECAY: 0.99
   WEIGHT_DECAY: 0.0001
-  BATCH_SIZE: 4
+  BATCH_SIZE: 2
   AUGMENTATION: True
+
+LOGGER:
+  NEPTUNE:
+    API_KEY: "eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJhNGY5M2M3OC0yNGVmLTQyYmItYWFkZi0xYTVmMjk4ODYxYjUifQ=="  # replace with your own
+    PROJECT: "ihroob/5DMOS"  # format "workspace-name/project-name"
 
 ##Network
 MODEL:
