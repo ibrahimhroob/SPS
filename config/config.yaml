@@ -1,10 +1,9 @@
 EXPERIMENT:
-  ID: LTOS # Long-Term Object Segmentation OR 5DMOS
+  ID: SPS # Long-Term Object Segmentation OR 5DMOS
 
 ##Data
 DATA:
   SHUFFLE: True
-  SEED: 42
   RADIUS: 50
   NUM_WORKER: 4
   SPLIT:
@@ -21,7 +20,7 @@ DATA:
 TRAIN:
   MAP: april_6_ABEF.asc
   MAX_EPOCH: 60
-  LR: 0.0001
+  LR: 0.00007
   LR_EPOCH: 1
   LR_DECAY: 0.99
   WEIGHT_DECAY: 0.0001
@@ -31,7 +30,7 @@ TRAIN:
 LOGGER:
   NEPTUNE:
     API_KEY: "eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJhNGY5M2M3OC0yNGVmLTQyYmItYWFkZi0xYTVmMjk4ODYxYjUifQ=="  # replace with your own
-    PROJECT: "ihroob/5DMOS"  # format "workspace-name/project-name"
+    PROJECT: "ihroob/SPS"  # format "workspace-name/project-name"
 
 ##Network
 MODEL:

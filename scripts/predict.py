@@ -3,10 +3,9 @@
 # @author    Benedikt Mersch     [mersch@igg.uni-bonn.de]
 # Copyright (c) 2022 Benedikt Mersch, all rights reserved
 
+import torch
 import click
 from pytorch_lightning import Trainer
-import torch
-import torch.nn.functional as F
 
 import mos4d.datasets.datasets as datasets
 import mos4d.models.models as models
@@ -19,7 +18,7 @@ import mos4d.models.models as models
     "-w",
     type=str,
     help="path to checkpoint file (.ckpt) to do inference.",
-    default='/mos4d/logs/LTOS/version_10/checkpoints/last.ckpt',
+    default='/mos4d/.neptune/None/version_None/checkpoints/last.ckpt',
     # required=True,
 )
 @click.option(

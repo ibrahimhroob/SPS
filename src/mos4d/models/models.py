@@ -25,6 +25,7 @@ class MOSNet(LightningModule):
         self.model = MOSModel(hparams)
 
         self.data_dir = str(os.environ.get("DATA"))
+        self.seqs = hparams["DATA"]["SPLIT"]["VAL"]
 
     def training_step(self, batch, batch_idx, dataloader_index=0):
         coordinates = batch[:, :5].reshape(-1, 5)
@@ -53,37 +54,55 @@ class MOSNet(LightningModule):
         return {"val_loss": loss, "val_r2": r2}
 
     def predict_step(self, batch, batch_idx):
-        coordinates = batch[:, :5].reshape(-1, 5)
-        gt_labels = batch[:, 5].reshape(-1)
-        scan_indices = np.where(coordinates[:, 4].cpu().data.numpy() == 1)[0]
-        scores = self.model(coordinates)
-        loss = self.loss(scores[scan_indices], gt_labels[scan_indices])
-        r2 = self.r2score(scores[scan_indices], gt_labels[scan_indices])
+        if batch_idx % 20 != 0:
+            return
+        
+        for seq in self.seqs:
+            coordinates = batch[:, :5].reshape(-1, 5)
+            gt_labels = batch[:, 5].reshape(-1)
+            scan_indices = np.where(coordinates[:, 4].cpu().data.numpy() == 1)[0]
+            scores = self.model(coordinates)
+            loss = self.loss(scores[scan_indices], gt_labels[scan_indices])
+            r2 = self.r2score(scores[scan_indices], gt_labels[scan_indices])
 
-        s_path = os.path.join(
-            self.data_dir,
-            'predictions',
-            str(self.seq), 
-            'scans'
-        )
+            s_path = os.path.join(
+                self.data_dir,
+                'predictions',
+                seq,
+                'scans'
+            )
+            m_path = os.path.join(
+                self.data_dir,
+                'predictions',
+                seq,
+                'maps'
+            )
 
-        os.makedirs(s_path, exist_ok=True)
+            os.makedirs(s_path, exist_ok=True)
+            os.makedirs(m_path, exist_ok=True)
 
-        batch_indices = [unique.item() for unique in torch.unique(batch[:, 0])]
-        for b in batch_indices:
-            mask_batch = batch[:, 0] == b
-            mask_scan = batch[:, -2] == 1
+            batch_indices = [unique.item() for unique in torch.unique(batch[:, 0])]
+            for b in batch_indices:
+                mask_batch = batch[:, 0] == b
+                mask_scan = batch[:, -2] == 1
+                mask_map  = batch[:, -2] == 0
 
-            scan_points = batch[torch.logical_and(mask_batch, mask_scan), 1:4].cpu().data.numpy()
-            scan_labels_gt = batch[torch.logical_and(mask_batch, mask_scan), -1].cpu().data.numpy()
-            scan_labels_hat = scores[scan_indices].cpu().data.numpy()
+                scan_points = batch[torch.logical_and(mask_batch, mask_scan), 1:4].cpu().data.numpy()
+                scan_labels_gt = batch[torch.logical_and(mask_batch, mask_scan), -1].cpu().data.numpy()
+                scan_labels_hat = scores[scan_indices].cpu().data.numpy()
 
-            assert len(scan_points) == len(scan_labels_gt) == len(scan_labels_hat), "Lengths of arrays are not equal."
+                map_points = batch[torch.logical_and(mask_batch, mask_map), 1:4].cpu().data.numpy()
+                map_labels_gt = batch[torch.logical_and(mask_batch, mask_map), -1].cpu().data.numpy()
 
-            scan_data = np.column_stack((scan_points, scan_labels_gt, scan_labels_hat))
+                assert len(scan_points) == len(scan_labels_gt) == len(scan_labels_hat), "Lengths of arrays are not equal."
 
-            save_pth = os.path.join(s_path, str(batch_idx) + '_' + str(b) + '.asc')
-            np.savetxt(save_pth, scan_data, fmt='%.3f')
+                scan_data = np.column_stack((scan_points, scan_labels_gt, scan_labels_hat))
+                map_data = np.column_stack((map_points, map_labels_gt))
+
+                scan_pth = os.path.join(s_path, str(batch_idx) + '_' + str(b) + '.npy')
+                map_pth  = os.path.join(m_path, str(batch_idx) + '_' + str(b) + '.npy')
+                np.save(scan_pth, scan_data)
+                np.save(map_pth, map_data)
 
         torch.cuda.empty_cache()
 

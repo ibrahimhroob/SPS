@@ -13,7 +13,18 @@ from tqdm import tqdm
 from torch.utils.data import Dataset, DataLoader
 from pytorch_lightning import LightningDataModule
 
+from mos4d.datasets.augmentation import (
+    rotate_point_cloud,
+    random_flip_point_cloud,
+    random_scale_point_cloud,
+    rotate_perturbation_point_cloud,
+)
 
+#####################################################################
+SCAN_TIMESTAMP = 1
+MAP__TIMESTAMP = 0
+
+#####################################################################
 class BacchusModule(LightningDataModule):
     def __init__(self, cfg):
         super(BacchusModule, self).__init__()
@@ -63,7 +74,8 @@ class BacchusModule(LightningDataModule):
             self.train_scans, 
             self.train_poses,
             self.map_path, 
-            self.train_map_tr
+            self.train_map_tr,
+            split='train'
         )
 
         val_set = BacchusDataset(
@@ -131,24 +143,19 @@ class BacchusModule(LightningDataModule):
     @staticmethod
     def collate_fn(batch):
         tensor_batch = None
-
-        for i, (map_points, scan_points, map_labels, scan_labels) in enumerate(batch):
-            ones = torch.ones(len(scan_points), 1, dtype=scan_points.dtype)
-            scan_points = torch.hstack([i * ones, scan_points, 1.0 * ones, scan_labels])
-
-            ones = torch.ones(len(map_points), 1, dtype=map_points.dtype)
-            map_points = torch.hstack([i * ones, map_points, 0.0 * ones, map_labels])
-
-            tensor = torch.vstack([scan_points, map_points])
+        
+        for i, (scan_submap_data) in enumerate(batch):
+            ones = torch.ones(len(scan_submap_data), 1, dtype=scan_submap_data.dtype)
+            tensor = torch.hstack([i * ones, scan_submap_data])
             tensor_batch = tensor if tensor_batch is None else torch.vstack([tensor_batch, tensor])
 
         return tensor_batch
 
-
+#####################################################################
 class BacchusDataset(Dataset):
     """Dataset class for point cloud prediction"""
 
-    def __init__(self, cfg, scans, poses, map, map_transform):
+    def __init__(self, cfg, scans, poses, map, map_transform, split = None):
         self.cfg = cfg
         self.scans = scans
         self.poses = poses
@@ -163,6 +170,8 @@ class BacchusDataset(Dataset):
         
         # Load map data points, data structure: [x,y,z,label]
         self.map = np.loadtxt(map)
+
+        self.augment = self.cfg["TRAIN"]["AUGMENTATION"] and split == "train"
 
     def __len__(self):
         return self.dataset_size
@@ -196,29 +205,50 @@ class BacchusDataset(Dataset):
         submap_points = torch.tensor(self.map[submap_idx, :3]).to(torch.float32).reshape(-1, 3)
         submap_labels = torch.tensor(self.map[submap_idx, 3]).to(torch.float32).reshape(-1, 1)
 
-        return submap_points, scan_points, submap_labels, scan_labels
+        # Bind time stamp to scan and submap points
+        scan_points = self.add_timestamp(scan_points, SCAN_TIMESTAMP)
+        submap_points = self.add_timestamp(submap_points, MAP__TIMESTAMP)
+
+        # Bind points label in the same tensor 
+        scan_points = torch.hstack([scan_points, scan_labels])
+        submap_points = torch.hstack([submap_points, submap_labels])
+
+        # Bine scans and map in the same tensor 
+        scan_submap_data = torch.vstack([scan_points, submap_points])
+
+        # Augment the points 
+        if self.augment:
+            scan_submap_data[:,:3] = self.augment_data(scan_submap_data[:,:3])
+
+        return scan_submap_data
+
+    def add_timestamp(self, data, stamp):
+        ones = torch.ones(len(data), 1, dtype=data.dtype)
+        data = torch.hstack([data, ones * stamp])
+        return data
 
     def select_points_within_radius(self, coordinates, center):
         # Calculate the Euclidean distance from each point to the center
         distances = np.sqrt(np.sum((coordinates - center) ** 2, axis=1))
-
         # Select the indexes of points within the radius
         indexes = np.where(distances <= self.cfg["DATA"]["RADIUS"])[0]
-        
         return indexes
 
     def transform_point_cloud(self, point_cloud, transformation_matrix):
         # Convert point cloud to homogeneous coordinates
         homogeneous_coords = np.hstack((point_cloud, np.ones((point_cloud.shape[0], 1))))
-
         # Apply transformation matrix
         transformed_coords = np.dot(homogeneous_coords, transformation_matrix.T)
-
         # Convert back to Cartesian coordinates
         transformed_point_cloud = transformed_coords[:, :3] / transformed_coords[:, 3][:, np.newaxis]
-
         return transformed_point_cloud
 
+    def augment_data(self, scan_map_batch):
+        scan_map_batch = rotate_point_cloud(scan_map_batch)
+        scan_map_batch = rotate_perturbation_point_cloud(scan_map_batch)
+        scan_map_batch = random_flip_point_cloud(scan_map_batch)
+        scan_map_batch = random_scale_point_cloud(scan_map_batch)
+        return scan_map_batch
 
 if __name__ == "__main__":
     # The following is mainly for testing

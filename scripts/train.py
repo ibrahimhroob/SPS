@@ -8,7 +8,8 @@ import yaml
 import os
 import torch
 from pytorch_lightning import Trainer
-from pytorch_lightning.loggers import NeptuneLogger
+from pytorch_lightning import loggers as pl_loggers
+
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 
 import mos4d.datasets.datasets as datasets
@@ -52,23 +53,30 @@ def main(config):
     log_dir = "./logs"
     os.makedirs(log_dir, exist_ok=True)
 
-    neptune_logger = NeptuneLogger(
+    neptune_logger = pl_loggers.NeptuneLogger(
         api_key=cfg['LOGGER']['NEPTUNE']['API_KEY'],  
         project=cfg['LOGGER']['NEPTUNE']['PROJECT'],  # format "workspace-name/project-name"
-        tags=["training", cfg["EXPERIMENT"]["ID"]],  # optional
+        tags=["training", cfg["EXPERIMENT"]["ID"], 'augmentation'],  # optional
+        log_model_checkpoints=True,
     )
+
+    tb_logger = pl_loggers.TensorBoardLogger(
+        log_dir, name=cfg["EXPERIMENT"]["ID"], default_hp_metric=False
+    )
+
+    neptune_logger.log_hyperparams(cfg)
 
     print(torch.cuda.is_available())
     # Setup trainer
     trainer = Trainer(
         accelerator="gpu",
         devices=1,
-        logger=neptune_logger,
+        logger=[neptune_logger, tb_logger],
         max_epochs=cfg["TRAIN"]["MAX_EPOCH"],
         callbacks=[
             lr_monitor,
             checkpoint_saver_loss,
-            # checkpoint_saver_r2,
+            checkpoint_saver_r2,
         ],
     )
 
