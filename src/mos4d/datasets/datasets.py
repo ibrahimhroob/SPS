@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # @file      datasets.py
-# @author    Benedikt Mersch     [mersch@igg.uni-bonn.de]
+# @authors   (1) Benedikt Mersch     [mersch@igg.uni-bonn.de]
+#            (2) Ibrahim Hroob       [ihroob@lincoln.ac.uk]
 # Copyright (c) 2022 Benedikt Mersch, all rights reserved
 
 import os
@@ -25,13 +26,17 @@ class BacchusModule(LightningDataModule):
         val_seqs = self.cfg['DATA']['SPLIT']['VAL']
         self.val_scans, self.val_poses, self.val_map_tr = self.get_scans_poses(val_seqs)
         
+        test_seqs = self.cfg['DATA']['SPLIT']['TEST']
+        self.test_scans, self.test_poses, self.test_map_tr = self.get_scans_poses(test_seqs)
+
         map_str = self.cfg["TRAIN"]["MAP"]
         self.map_path = os.path.join(self.root_dir, "maps", map_str)
 
     def get_scans_poses(self, seqs):
         seq_scans = []
         seq_poses = []
-        map_transform_pth = []
+        map_transform = []  #path to the transformation matrix that is used to align 
+                            #the transformed scans (using their poses) to the base map
 
         for sequence in seqs:
             scans_dir = os.path.join(self.root_dir, "sequence", sequence, "scans")
@@ -45,11 +50,11 @@ class BacchusModule(LightningDataModule):
 
             seq_scans.extend(scans)
             seq_poses.extend(poses)
-            map_transform_pth.extend(paths)
+            map_transform.extend(paths)
 
-        assert len(seq_scans) == len(seq_poses) == len(map_transform_pth), 'The length of those arrays should be the same!'
+        assert len(seq_scans) == len(seq_poses) == len(map_transform), 'The length of those arrays should be the same!'
 
-        return seq_scans, seq_poses, map_transform_pth
+        return seq_scans, seq_poses, map_transform
 
     def setup(self, stage=None):
         ########## Point dataset splits
@@ -67,6 +72,14 @@ class BacchusModule(LightningDataModule):
             self.val_poses, 
             self.map_path,
             self.val_map_tr
+        )
+
+        test_set = BacchusDataset(
+            self.cfg, 
+            self.test_scans, 
+            self.test_poses, 
+            self.map_path,
+            self.test_map_tr
         )
 
         ########## Generate dataloaders and iterables
@@ -94,12 +107,27 @@ class BacchusModule(LightningDataModule):
         )
         self.valid_iter = iter(self.valid_loader)
 
+        self.test_loader = DataLoader(
+            dataset=test_set,
+            batch_size=self.cfg["TRAIN"]["BATCH_SIZE"],
+            collate_fn=self.collate_fn,
+            shuffle=False,
+            num_workers=self.cfg["DATA"]["NUM_WORKER"],
+            pin_memory=True,
+            drop_last=False,
+            timeout=0,
+        )
+        self.test_iter = iter(self.test_loader)
+
     def train_dataloader(self):
         return self.train_loader
 
     def val_dataloader(self):
         return self.valid_loader
 
+    def test_dataloader(self):
+        return self.test_loader
+    
     @staticmethod
     def collate_fn(batch):
         tensor_batch = None
@@ -132,11 +160,9 @@ class BacchusDataset(Dataset):
         )
 
         self.dataset_size = len(scans)
+        
         # Load map data points, data structure: [x,y,z,label]
         self.map = np.loadtxt(map)
-
-        # Transform map to the global coordinate frames of the scans
-        # self.map[:,:3] = self.transform_point_cloud(self.map[:,:3], np.linalg.inv(map_transform))
 
     def __len__(self):
         return self.dataset_size
@@ -153,7 +179,9 @@ class BacchusDataset(Dataset):
         # Load map transformation 
         map_transform = np.loadtxt(map_tr_pth, delimiter=',')
 
-        # Transform the scan to its global coordinate
+        # Transform the scan to the map coordinates
+        # (1) First we transform the scan using the pose from SLAM system
+        # (2) Second we align the transformed scan to the map using map_transform matrix
         scan_data[:,:3] = self.transform_point_cloud(scan_data[:,:3], pose_data)
         scan_data[:,:3] = self.transform_point_cloud(scan_data[:,:3], map_transform)
 
@@ -173,8 +201,10 @@ class BacchusDataset(Dataset):
     def select_points_within_radius(self, coordinates, center):
         # Calculate the Euclidean distance from each point to the center
         distances = np.sqrt(np.sum((coordinates - center) ** 2, axis=1))
+
         # Select the indexes of points within the radius
         indexes = np.where(distances <= self.cfg["DATA"]["RADIUS"])[0]
+        
         return indexes
 
     def transform_point_cloud(self, point_cloud, transformation_matrix):
