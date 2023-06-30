@@ -27,6 +27,9 @@ class MOSNet(LightningModule):
         self.data_dir = str(os.environ.get("DATA"))
         self.seqs = hparams["DATA"]["SPLIT"]["VAL"]
 
+        self.predict_loss = []
+        self.predict_r2 = []
+
     def training_step(self, batch, batch_idx, dataloader_index=0):
         coordinates = batch[:, :5].reshape(-1, 5)
         gt_labels = batch[:, 5].reshape(-1)
@@ -64,7 +67,8 @@ class MOSNet(LightningModule):
             scores = self.model(coordinates)
             loss = self.loss(scores[scan_indices], gt_labels[scan_indices])
             r2 = self.r2score(scores[scan_indices], gt_labels[scan_indices])
-
+            self.predict_loss.append(loss.cpu().data)
+            self.predict_r2.append(r2.cpu().data)
             s_path = os.path.join(
                 self.data_dir,
                 'predictions',
@@ -105,6 +109,7 @@ class MOSNet(LightningModule):
                 np.save(map_pth, map_data)
 
         torch.cuda.empty_cache()
+        # return {"val_loss": loss, "val_r2": r2}
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)

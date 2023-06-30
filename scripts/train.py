@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # @file      train.py
-# @author    Benedikt Mersch     [mersch@igg.uni-bonn.de]
+# @authors   (1) Benedikt Mersch     [mersch@igg.uni-bonn.de]
+#            (2) Ibrahim Hroob       [ihroob@lincoln.ac.uk]
 # Copyright (c) 2022 Benedikt Mersch, all rights reserved
 
 import click
