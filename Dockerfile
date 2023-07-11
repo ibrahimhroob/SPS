@@ -64,9 +64,9 @@ RUN git clone --recursive "https://github.com/NVIDIA/MinkowskiEngine" \
 WORKDIR $PROJECT
 COPY . $PROJECT
 RUN python3 -m pip install --editable . \
-    && rm -rf $PROJECT
-
-RUN pip install tensorboard neptune
+    && rm -rf $PROJECT 
+    
+RUN pip install tensorboard 
 
 # Add user to share files between container and host system
 ARG USER_ID
