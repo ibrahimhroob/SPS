@@ -8,7 +8,6 @@ import os
 import yaml
 import torch
 import numpy as np
-import torch
 from tqdm import tqdm
 from torch.utils.data import Dataset, DataLoader
 from pytorch_lightning import LightningDataModule

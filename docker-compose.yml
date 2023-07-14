@@ -15,3 +15,5 @@ services:
       - ${DATA}:/mos4d/data
     stdin_open: true
     tty: true
+    environment:
+      - ROS_MASTER_URI=$ROS_MASTER_URI

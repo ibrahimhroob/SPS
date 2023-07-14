@@ -135,3 +135,6 @@ dmypy.json
 Dataset/Bacchus/*
 data/*
 .neptune/*
+c_ws/devel/*
+c_ws/.catkin_tools/*
+
