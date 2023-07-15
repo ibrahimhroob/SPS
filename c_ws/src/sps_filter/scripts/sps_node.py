@@ -19,6 +19,10 @@ SCAN_TIMESTAMP = 1
 MAP_TIMESTAMP = 0
 CLOUD_ODOM_MAX_TIME_DIFF = 0.01 #seconds 
 
+''' Define color thresholds '''
+GREEN_THRESHOLD = 0.1  # Adjust as needed
+RED_THRESHOLD = 0.2  # Adjust as needed
+
 class SPS():
     def __init__(self):
         rospy.init_node('Stable_Points_Segmentation')
@@ -106,9 +110,13 @@ class SPS():
     def load_model(self):
         self.cfg = torch.load(self.weights_pth)["hyper_parameters"]
 
-        ckpt = torch.load(self.weights_pth)
+        state_dict = {
+            k.replace("model.MinkUNet.", ""): v
+            for k, v in torch.load(self.weights_pth)["state_dict"].items()
+        }
+        state_dict = {k: v for k, v in state_dict.items() if "MOSLoss" not in k}
         model = models.MOSNet(self.cfg)
-        model.load_state_dict(ckpt["state_dict"])
+        model.model.MinkUNet.load_state_dict(state_dict)
         model = model.cuda()
         model.eval()
         model.freeze()
@@ -157,8 +165,25 @@ class SPS():
         return data
     
 
+    def print_infer_time(self, elapsed_time, frame_size):
+        ''' Determine color code based on elapsed_time value '''
+        if elapsed_time < GREEN_THRESHOLD:
+            color_code = "\033[32m"  # Green
+        elif elapsed_time > RED_THRESHOLD:
+            color_code = "\033[31m"  # Red
+        else:
+            color_code = "\033[33m"  # Yellow
+
+        ''' Reset text color code '''
+        reset_code = "\033[0m"
+
+        ''' Format the log message with color codes '''
+        log_message = f"Frame inference: {color_code}{elapsed_time:.4f}{reset_code} sec [{color_code}{1/elapsed_time:.2f}{reset_code} Hz]. Size: {frame_size}"
+        rospy.loginfo(log_message)
+
+
     def infer(self, scan, submap):
-        start_time = time.time()
+        # start_time = time.time()
 
         ''' Prepare the data for the model, it need to be like this [Batch, X, Y, Z, time] '''
         scan_points = torch.tensor(scan, dtype=torch.float32).reshape(-1, 3)
@@ -186,12 +211,12 @@ class SPS():
 
         end_time = time.time()
         elapsed_time = end_time - start_time
-        rospy.loginfo(f"Frame inference time: {elapsed_time:.4f} seconds [{1/elapsed_time:.2f} Hz]. Frame size: {len(scores)}")
 
-        start_time = time.time()
-        scan_scores = scores[:len(scan)]
+        self.print_infer_time(elapsed_time, len(scores))
 
+        # start_time = time.time()
         ''' Find the indecies where the score is less than the threshold, i.e. filter out dynamic points '''
+        scan_scores = scores[:len(scan)]
         scan_points = scan_points[(scan_scores <= self.threshold_dynamic)]
 
         # end_time = time.time()
