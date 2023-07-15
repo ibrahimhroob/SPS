@@ -66,9 +66,9 @@ RUN git clone --recursive "https://github.com/NVIDIA/MinkowskiEngine" \
 # Install project related dependencies
 WORKDIR $PROJECT
 COPY . $PROJECT
-RUN python3 setup.py install \
+RUN python3 setup.py develop \
     && rm -rf $PROJECT 
-    
+
 RUN pip install tensorboard 
 
 # Set numpy version to 1.20.1 as higher version cause issues in ros-numpy package 
