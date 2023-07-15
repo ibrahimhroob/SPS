@@ -54,57 +54,10 @@ class MOSNet(LightningModule):
         return {"val_loss": loss, "val_r2": r2}
 
     def predict_step(self, batch, batch_idx):
-        if batch_idx % 20 != 0:
-            return
-        
-        for seq in self.seqs:
-            coordinates = batch[:, :5].reshape(-1, 5)
-            gt_labels = batch[:, 5].reshape(-1)
-            scan_indices = np.where(coordinates[:, 4].cpu().data.numpy() == 1)[0]
-            scores = self.model(coordinates)
-            loss = self.loss(scores[scan_indices], gt_labels[scan_indices])
-            r2 = self.r2score(scores[scan_indices], gt_labels[scan_indices])
-
-            s_path = os.path.join(
-                self.data_dir,
-                'predictions',
-                seq,
-                'scans'
-            )
-            m_path = os.path.join(
-                self.data_dir,
-                'predictions',
-                seq,
-                'maps'
-            )
-
-            os.makedirs(s_path, exist_ok=True)
-            os.makedirs(m_path, exist_ok=True)
-
-            batch_indices = [unique.item() for unique in torch.unique(batch[:, 0])]
-            for b in batch_indices:
-                mask_batch = batch[:, 0] == b
-                mask_scan = batch[:, -2] == 1
-                mask_map  = batch[:, -2] == 0
-
-                scan_points = batch[torch.logical_and(mask_batch, mask_scan), 1:4].cpu().data.numpy()
-                scan_labels_gt = batch[torch.logical_and(mask_batch, mask_scan), -1].cpu().data.numpy()
-                scan_labels_hat = scores[scan_indices].cpu().data.numpy()
-
-                map_points = batch[torch.logical_and(mask_batch, mask_map), 1:4].cpu().data.numpy()
-                map_labels_gt = batch[torch.logical_and(mask_batch, mask_map), -1].cpu().data.numpy()
-
-                assert len(scan_points) == len(scan_labels_gt) == len(scan_labels_hat), "Lengths of arrays are not equal."
-
-                scan_data = np.column_stack((scan_points, scan_labels_gt, scan_labels_hat))
-                map_data = np.column_stack((map_points, map_labels_gt))
-
-                scan_pth = os.path.join(s_path, str(batch_idx) + '_' + str(b) + '.npy')
-                map_pth  = os.path.join(m_path, str(batch_idx) + '_' + str(b) + '.npy')
-                np.save(scan_pth, scan_data)
-                np.save(map_pth, map_data)
-
+        coordinates = batch[:, :5].reshape(-1, 5)
+        scores = self.model(coordinates)
         torch.cuda.empty_cache()
+        return scores
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
@@ -112,6 +65,11 @@ class MOSNet(LightningModule):
             optimizer, step_size=self.lr_epoch, gamma=self.lr_decay
         )
         return [optimizer], [scheduler]
+
+    def forward(self, batch):
+        coordinates = batch[:, :5].reshape(-1, 5)
+        scores = self.model(coordinates)
+        return scores
 
 
 class MOSModel(nn.Module):

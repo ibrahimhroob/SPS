@@ -25,9 +25,12 @@ RUN apt install -y curl && \
 RUN apt update && apt install -y --no-install-recommends ros-${ROS_DISTRO}-ros-base \
     && echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> ~/.bashrc
 
+# Install catkin tools and other packages 
+RUN apt update && \
+    apt install -y ros-${ROS_DISTRO}-catkin python3-catkin-tools ros-${ROS_DISTRO}-ros-numpy
+
 # install ros packages
 RUN apt update && apt install -y --no-install-recommends nano build-essential \
-    ros-${ROS_DISTRO}-catkin python3-catkin-tools ros-${ROS_DISTRO}-ros-numpy \
     libomp-dev libboost-all-dev ros-${ROS_DISTRO}-pcl-ros \
     ros-${ROS_DISTRO}-tf2 ros-${ROS_DISTRO}-tf2-ros ros-${ROS_DISTRO}-tf2-geometry-msgs  \
     ros-${ROS_DISTRO}-eigen-conversions ros-${ROS_DISTRO}-tf-conversions python3 python3-venv \
@@ -63,15 +66,18 @@ RUN git clone --recursive "https://github.com/NVIDIA/MinkowskiEngine" \
 # Install project related dependencies
 WORKDIR $PROJECT
 COPY . $PROJECT
-RUN python3 -m pip install --editable . \
+RUN python3 setup.py install \
     && rm -rf $PROJECT 
     
 RUN pip install tensorboard 
+
+# Set numpy version to 1.20.1 as higher version cause issues in ros-numpy package 
+RUN pip3 install --upgrade numpy==1.20.1    
 
 # Add user to share files between container and host system
 ARG USER_ID
 ARG GROUP_ID
 
-RUN addgroup --gid $GROUP_ID user \
-    && adduser --disabled-password --gecos '' --uid $USER_ID --gid $GROUP_ID user \
+RUN addgroup --gid 1000 user \
+    && adduser --disabled-password --gecos '' --uid 1000 --gid 1000 user \
     && chown -R user:user /mos4d

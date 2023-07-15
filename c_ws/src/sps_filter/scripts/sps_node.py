@@ -30,11 +30,11 @@ class SPS():
         self.center = [0, 0, 0]
         self.cfg = None
 
-        raw_cloud_topic = rospy.get_param('~raw_cloud')
-        filtered_cloud_topic = rospy.get_param('~filtered_cloud')
-        self.weights_pth = rospy.get_param('~model_weights_pth')
-        predicted_pose_topic = rospy.get_param('~predicted_pose')
-        self.threshold_dynamic = rospy.get_param('~epsilon')
+        raw_cloud_topic = rospy.get_param('~raw_cloud', "/ndt/predicted/aligned_points")
+        filtered_cloud_topic = rospy.get_param('~filtered_cloud', "/cloud_filtered")
+        self.weights_pth = rospy.get_param('~model_weights_pth', "/mos4d/logs/SPS/version_2/checkpoints/last.ckpt")
+        predicted_pose_topic = rospy.get_param('~predicted_pose', "/ndt/predicted/odom")
+        self.threshold_dynamic = rospy.get_param('~epsilon', 0.85)
 
         rospy.Subscriber(raw_cloud_topic, PointCloud2, self.callback_points)
         rospy.Subscriber(predicted_pose_topic, Odometry, self.callback_odom)
@@ -56,7 +56,7 @@ class SPS():
 
         # Load point cloud map
         try:
-            self.point_cloud_map = np.loadtxt(map_pth)
+            self.point_cloud_map = np.loadtxt(map_pth, dtype=np.float32)
             rospy.loginfo('Point cloud map loaded successfuly')
         except:
             rospy.logerr('Faild to load point cloud map form %s', map_pth)
@@ -74,14 +74,14 @@ class SPS():
         self.center = [x, y, z]
 
     def callback_points(self, pointcloud_msg):
-        assert pointcloud_msg.header.stamp == self.odom_msg_stamp, 'Pose and point cloud messeges should have the same time stamp!!'
+        # assert pointcloud_msg.header.stamp == self.odom_msg_stamp, 'Pose and point cloud messeges should have the same time stamp!!'
         pc = ros_numpy.numpify(pointcloud_msg)
         height = pc.shape[0]
         try:
             width = pc.shape[1]
         except:
             width = 1
-        scan = np.zeros((height * width, 4), dtype=float)
+        scan = np.zeros((height * width, 4), dtype=np.float32)
         scan[:, 0] = np.resize(pc['x'], height * width)
         scan[:, 1] = np.resize(pc['y'], height * width)
         scan[:, 2] = np.resize(pc['z'], height * width)
@@ -89,15 +89,15 @@ class SPS():
 
         # Get submap points
         submap_indices = self.select_points_within_radius(self.point_cloud_map[:,:3], self.center)
-        submap = self.point_cloud_map[submap_indices, :3]
+        submap_points = self.point_cloud_map[submap_indices, :3]
         submap_labels = self.point_cloud_map[submap_indices, 3]
 
         scan_indices = self.select_points_within_radius(scan[:,:3], self.center)
-        scan = scan[scan_indices, :3]
+        scan_points = scan[scan_indices, :3]
         scan_labels = scan[scan_indices, 3]
 
         # Infere the stability labels
-        scan = self.infer(scan, submap, scan_labels, submap_labels)
+        scan = self.infer(scan_points, submap_points, scan_labels, submap_labels)
 
         filtered_cloud = self.to_rosmsg(scan, pointcloud_msg.header)
 
@@ -169,16 +169,17 @@ class SPS():
         submap_points = self.add_timestamp(submap_points, MAP__TIMESTAMP)
 
         # Bind points label in the same tensor 
-        scan_points = torch.hstack([scan_points, scan_labels])
-        submap_points = torch.hstack([submap_points, submap_labels])
+        # scan_points = torch.hstack([scan_points, scan_labels])
+        # submap_points = torch.hstack([submap_points, submap_labels])
 
         # Bind scans and map in the same tensor 
         scan_submap_data = torch.vstack([scan_points, submap_points])
 
         batch = torch.zeros(len(scan_submap_data), 1, dtype=scan_submap_data.dtype)
-        tensor = torch.hstack([batch, scan_submap_data]).reshape(-1, 5)
+        tensor = torch.hstack([batch, scan_submap_data]) #.reshape(-1, 5)
 
-        scores = self.model(tensor)
+        with torch.no_grad():
+            scores = self.model(tensor)
 
         scan_scores = scores[:len(scan_labels)]
 
