@@ -19,3 +19,4 @@ services:
     environment:
       - NVIDIA_DRIVER_CAPABILITIES=all
       - ROS_MASTER_URI=$ROS_MASTER_URI
+    working_dir: /mos4d

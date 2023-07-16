@@ -46,9 +46,12 @@ ENV TORCH_NVCC_FLAGS="-Xfatbin -compress-all"
 
 ENV PROJECT=/mos4d
 RUN mkdir -p $PROJECT
-RUN mkdir -p /mos4d/logs
+RUN mkdir -p $PROJECT/logs
 
-ENV DATA=/mos4d/data
+ENV C_WS_SRC=$PROJECT/c_ws/src
+RUN mkdir -p $C_WS_SRC
+
+ENV DATA=$PROJECT/data
 RUN mkdir -p $DATA
 
 # Update the package repository and install dependencies
@@ -62,6 +65,24 @@ ENV MAX_JOBS=4
 RUN git clone --recursive "https://github.com/NVIDIA/MinkowskiEngine" \
     && cd MinkowskiEngine \
     && python3 setup.py install --force_cuda --blas=openblas
+
+# Install Localization package and its ros dependencies 
+RUN apt-get update && apt-get install --no-install-recommends -y libgtest-dev libopencv-dev  \
+    ros-${ROS_DISTRO}-image-transport ros-${ROS_DISTRO}-image-transport-plugins \
+    ros-${ROS_DISTRO}-cv-bridge ros-${ROS_DISTRO}-message-filters wget \
+    libatlas-base-dev libgoogle-glog-dev libsuitesparse-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR $C_WS_SRC
+RUN git clone https://github.com/koide3/ndt_omp && \
+    git clone https://github.com/SMRT-AIST/fast_gicp --recursive && \
+    git clone https://github.com/koide3/hdl_global_localization && \
+    git clone --branch SPS https://github.com/ibrahimhroob/hdl_localization.git && \
+    git clone https://github.com/ibrahimhroob/sps_filter.git
+
+WORKDIR $PROJECT/c_ws
+RUN . /opt/ros/${ROS_DISTRO}/setup.sh; catkin build
 
 # Install project related dependencies
 WORKDIR $PROJECT
