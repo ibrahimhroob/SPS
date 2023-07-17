@@ -28,7 +28,7 @@ from torch.optim import SGD
 import MinkowskiEngine as ME
 from MinkowskiEngine.modules.resnet_block import BasicBlock, Bottleneck
 
-from mos4d.models.MinkowskiEngine.resnet import ResNetBase
+from sps.models.MinkowskiEngine.resnet import ResNetBase
 
 
 class MinkUNetBase(ResNetBase):

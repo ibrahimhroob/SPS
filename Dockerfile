@@ -11,7 +11,7 @@ ENV MAX_JOBS=6
 
 ENV ROS_DISTRO noetic
 
-ENV PROJECT=/mos4d
+ENV PROJECT=/sps
 
 ENV DATA=$PROJECT/data
 
@@ -68,14 +68,15 @@ RUN mkdir -p $PROJECT/logs && mkdir -p $DATA
 
 WORKDIR $PROJECT
 COPY . $PROJECT
-RUN python3 setup.py develop \
-    && cd c_ws \
-    && . /opt/ros/${ROS_DISTRO}/setup.sh \
-    && catkin build 
+RUN python3 setup.py develop 
+# \
+#     && cd c_ws \
+#     && . /opt/ros/${ROS_DISTRO}/setup.sh \
+#     && catkin build 
 
 # Copy the 'build' and 'devel' folders into the image
-COPY c_ws/build $PROJECT/c_ws/build
-COPY c_ws/devel $PROJECT/c_ws/devel
+# COPY c_ws/build $PROJECT/c_ws/build
+# COPY c_ws/devel $PROJECT/c_ws/devel
 
 RUN rm -rf $PROJECT
 
@@ -86,4 +87,4 @@ ARG GROUP_ID
 
 RUN addgroup --gid 1000 user \
     && adduser --disabled-password --gecos '' --uid 1000 --gid 1000 user \
-    && chown -R user:user /mos4d
+    && chown -R user:user /sps

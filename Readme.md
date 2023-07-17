@@ -17,6 +17,24 @@ catkin build
 ```
 
 ### Building the Docker image
+We provide a ```Dockerfile``` and a ```docker-compose.yaml``` to run all docker commands. 
+
+**IMPORTANT** To have GPU access during the build stage, make ```nvidia``` the default runtime in ```/etc/docker/daemon.json```:
+
+    ```yaml
+    {
+        "runtimes": {
+            "nvidia": {
+                "path": "/usr/bin/nvidia-container-runtime",
+                "runtimeArgs": []
+            } 
+        },
+        "default-runtime": "nvidia" 
+    }
+    ```
+    Save the file and run ```sudo systemctl restart docker``` to restart docker.
+
+
 To build the image, simply type the following in the terminal:
 ```bash
 bash build_docker.sh

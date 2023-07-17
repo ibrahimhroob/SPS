@@ -7,8 +7,8 @@ import torch
 import click
 from pytorch_lightning import Trainer
 
-import mos4d.datasets.datasets as datasets
-import mos4d.models.models as models
+import sps.datasets.datasets as datasets
+import sps.models.models as models
 
 
 @click.command()
@@ -18,7 +18,7 @@ import mos4d.models.models as models
     "-w",
     type=str,
     help="path to checkpoint file (.ckpt) to do inference.",
-    default='/mos4d/.neptune/None/version_None/checkpoints/last.ckpt',
+    default='/sps/.neptune/None/version_None/checkpoints/last.ckpt',
     # required=True,
 )
 @click.option(

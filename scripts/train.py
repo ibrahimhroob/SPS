@@ -12,8 +12,8 @@ from pytorch_lightning import loggers as pl_loggers
 
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 
-import mos4d.datasets.datasets as datasets
-import mos4d.models.models as models
+import sps.datasets.datasets as datasets
+import sps.models.models as models
 
 
 @click.command()

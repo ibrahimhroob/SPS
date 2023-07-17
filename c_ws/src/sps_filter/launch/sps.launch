@@ -2,7 +2,7 @@
     <arg name="raw_cloud" default="/ndt/predicted/aligned_points" />
     <arg name="filtered_cloud" default="/cloud_filtered" />
     <arg name="predicted_pose" default="/ndt/predicted/odom" />
-    <arg name="model_weights_pth" default="/mos4d/logs/SPS/version_2/checkpoints/last.ckpt" />
+    <arg name="model_weights_pth" default="/sps/logs/SPS/version_2/checkpoints/last.ckpt" />
     <arg name="epsilon" default="0.85" />
 
     <node pkg="sps_filter" type="sps_node.py" name="Stable_Points_Segmentation" output="screen">

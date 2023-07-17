@@ -16,7 +16,7 @@ class PubScans:
 
         ''' Retrieve parameters from ROS parameter server '''
         cloud_topic = rospy.get_param('~raw_cloud', "/os_cloud_node/points")
-        scans_pth   = rospy.get_param('~scans_pth', "/mos4d/data/sequence/20220420/scans")
+        scans_pth   = rospy.get_param('~scans_pth', "/sps/data/sequence/20220420/scans")
         pub_rate    = rospy.get_param('~rate', 5)
 
         self.pub = rospy.Publisher(cloud_topic, PointCloud2, queue_size=10)

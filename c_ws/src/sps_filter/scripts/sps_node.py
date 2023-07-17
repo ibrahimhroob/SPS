@@ -12,7 +12,7 @@ import ros_numpy
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import PointCloud2, PointField
 
-import mos4d.models.models as models
+import sps.models.models as models
 
 ''' Constants '''
 SCAN_TIMESTAMP = 1
@@ -34,7 +34,7 @@ class SPS():
         ''' Retrieve parameters from ROS parameter server '''
         raw_cloud_topic = rospy.get_param('~raw_cloud', "/ndt/predicted/aligned_points")
         filtered_cloud_topic = rospy.get_param('~filtered_cloud', "/cloud_filtered")
-        self.weights_pth = rospy.get_param('~model_weights_pth', "/mos4d/best_models/last.ckpt")
+        self.weights_pth = rospy.get_param('~model_weights_pth', "/sps/best_models/last.ckpt")
         predicted_pose_topic = rospy.get_param('~predicted_pose', "/ndt/predicted/odom")
         self.threshold_dynamic = rospy.get_param('~epsilon', 0.85)
 

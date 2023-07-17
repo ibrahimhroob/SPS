@@ -1,11 +1,11 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="mos4d",
+    name="sps",
     version="0.1",
-    author="Benedikt Mersch",
+    authors="Ibrahim Hroob, Benedikt Mersch",
     package_dir={"": "src"},
-    description="Receding Moving Object Segmentation in 3D LiDAR Data Using Sparse 4D Convolutions",
+    description="Stable Points Segmentation",
     packages=find_packages(where="src"),
     install_requires=[
         "Click>=7.0",

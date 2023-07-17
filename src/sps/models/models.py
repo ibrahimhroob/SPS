@@ -8,7 +8,7 @@ import numpy as np
 import torch.nn as nn
 from pytorch_lightning import LightningModule
 import MinkowskiEngine as ME
-from mos4d.models.MinkowskiEngine.customminkunet import CustomMinkUNet
+from sps.models.MinkowskiEngine.customminkunet import CustomMinkUNet
 from torchmetrics import R2Score
 
 class MOSNet(LightningModule):

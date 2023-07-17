@@ -12,7 +12,7 @@ from tqdm import tqdm
 from torch.utils.data import Dataset, DataLoader
 from pytorch_lightning import LightningDataModule
 
-from mos4d.datasets.augmentation import (
+from sps.datasets.augmentation import (
     rotate_point_cloud,
     random_flip_point_cloud,
     random_scale_point_cloud,
