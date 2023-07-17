@@ -1,4 +1,14 @@
-Reduced version of 4DMOS, see [here](http://www.ipb.uni-bonn.de/pdfs/mersch2022ral.pdf):
+Reduced version of 4DMOS, see [here](http://www.ipb.uni-bonn.de/pdfs/mersch2022ral.pdf)
+
+### Pre setup
+Clone the following packages into `c_ws/src`
+```bash
+git clone https://github.com/koide3/ndt_omp
+git clone https://github.com/SMRT-AIST/fast_gicp --recursive 
+git clone https://github.com/koide3/hdl_global_localization 
+git clone --branch SPS https://github.com/ibrahimhroob/hdl_localization.git
+git clone https://github.com/ibrahimhroob/sps_filter.git
+```
 
 ### Without Docker
 Without Docker, you need to install the dependencies specified in the `setup.py`.This can be done in editable mode by running

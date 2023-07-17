@@ -66,24 +66,6 @@ RUN git clone --recursive "https://github.com/NVIDIA/MinkowskiEngine" \
     && cd MinkowskiEngine \
     && python3 setup.py install --force_cuda --blas=openblas
 
-# Install Localization package and its ros dependencies 
-RUN apt-get update && apt-get install --no-install-recommends -y libgtest-dev libopencv-dev  \
-    ros-${ROS_DISTRO}-image-transport ros-${ROS_DISTRO}-image-transport-plugins \
-    ros-${ROS_DISTRO}-cv-bridge ros-${ROS_DISTRO}-message-filters wget \
-    libatlas-base-dev libgoogle-glog-dev libsuitesparse-dev \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR $C_WS_SRC
-RUN git clone https://github.com/koide3/ndt_omp && \
-    git clone https://github.com/SMRT-AIST/fast_gicp --recursive && \
-    git clone https://github.com/koide3/hdl_global_localization && \
-    git clone --branch SPS https://github.com/ibrahimhroob/hdl_localization.git && \
-    git clone https://github.com/ibrahimhroob/sps_filter.git
-
-WORKDIR $PROJECT/c_ws
-RUN . /opt/ros/${ROS_DISTRO}/setup.sh; catkin build
-
 # Install project related dependencies
 WORKDIR $PROJECT
 COPY . $PROJECT
@@ -94,6 +76,18 @@ RUN pip install tensorboard
 
 # Set numpy version to 1.20.1 as higher version cause issues in ros-numpy package 
 RUN pip3 install --upgrade numpy==1.20.1    
+
+# Install Localization package and its ros dependencies 
+RUN apt-get update && apt-get install --no-install-recommends -y libgtest-dev libopencv-dev  \
+    ros-${ROS_DISTRO}-image-transport ros-${ROS_DISTRO}-image-transport-plugins \
+    ros-${ROS_DISTRO}-cv-bridge ros-${ROS_DISTRO}-message-filters wget \
+    libatlas-base-dev libgoogle-glog-dev libsuitesparse-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# WORKDIR $PROJECT/c_ws
+# RUN . /opt/ros/${ROS_DISTRO}/setup.sh; catkin build
+
 
 # Add user to share files between container and host system
 ARG USER_ID
