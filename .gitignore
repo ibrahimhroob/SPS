@@ -132,9 +132,11 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
 Dataset/Bacchus/*
 data/*
 .neptune/*
 c_ws/devel/*
 c_ws/.catkin_tools/*
+
 

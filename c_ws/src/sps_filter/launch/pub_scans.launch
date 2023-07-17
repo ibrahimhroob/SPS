@@ -1,0 +1,11 @@
+<launch>
+    <arg name="cloud_topic" default="/os_cloud_node/points" />
+    <arg name="scans_pth" default="/mos4d/data/sequence/20220420/scans" />
+    <arg name="rate" default="5" />
+
+    <node pkg="sps_filter" type="pub_scans.py" name="Labelled_scans_publisher" output="screen">
+        <param name="cloud_topic" type="string" value="$(arg cloud_topic)"/>
+        <param name="scans_pth" type="string" value="$(arg scans_pth)"/>
+        <param name="rate" type="double" value="$(arg rate)"/>
+    </node>
+</launch>

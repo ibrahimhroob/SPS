@@ -1,20 +1,36 @@
 Reduced version of 4DMOS, see [here](http://www.ipb.uni-bonn.de/pdfs/mersch2022ral.pdf)
 
 ### Pre setup
-Clone the following packages into `c_ws/src`
+In your catkin_ws, please clone and build the following packages:
 ```bash
+cd </path/to/catkin_ws>/src
 git clone https://github.com/koide3/ndt_omp
 git clone https://github.com/SMRT-AIST/fast_gicp --recursive 
 git clone https://github.com/koide3/hdl_global_localization 
 git clone --branch SPS https://github.com/ibrahimhroob/hdl_localization.git
-git clone https://github.com/ibrahimhroob/sps_filter.git
 ```
 
-### Without Docker
-Without Docker, you need to install the dependencies specified in the `setup.py`.This can be done in editable mode by running
-
+Then build the packages:
 ```bash
-python3 -m pip install --editable .
+cd </path/to/catkin_ws>
+catkin build
+```
+
+### Building the Docker image
+To build the image, simply type the following in the terminal:
+```bash
+bash build_docker.sh
+```
+
+### Dataset
+Bacchus dataset:
+```bash
+wget https://lcas.lincoln.ac.uk/nextcloud/index.php/s/ssibg4rtrC4XFNJ/download -O Bacchus.zip && unzip Bacchus.zip && rm Bacchus.zip
+```
+
+NCLT dataset:
+```bash
+TODO
 ```
 
 ### Running
