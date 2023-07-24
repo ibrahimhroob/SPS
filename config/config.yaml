@@ -1,11 +1,11 @@
 EXPERIMENT:
-  ID: SPS # Long-Term Object Segmentation OR 5DMOS
+  ID: SPS_cKDTree # Long-Term Object Segmentation OR 5DMOS
 
 ##Data
 DATA:
   SHUFFLE: True
   RADIUS: 50
-  NUM_WORKER: 4
+  NUM_WORKER: 12
   SPLIT:
     TRAIN:
       - '20220420'
@@ -24,7 +24,7 @@ TRAIN:
   LR_EPOCH: 1
   LR_DECAY: 0.99
   WEIGHT_DECAY: 0.0001
-  BATCH_SIZE: 1
+  BATCH_SIZE: 16
   AUGMENTATION: True
 
 LOGGER:

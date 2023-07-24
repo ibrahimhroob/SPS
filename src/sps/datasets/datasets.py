@@ -12,6 +12,8 @@ from tqdm import tqdm
 from torch.utils.data import Dataset, DataLoader
 from pytorch_lightning import LightningDataModule
 
+from scipy.spatial import cKDTree
+
 from sps.datasets.augmentation import (
     rotate_point_cloud,
     random_flip_point_cloud,
@@ -55,12 +57,12 @@ class BacchusModule(LightningDataModule):
             scans = sorted([os.path.join(scans_dir, file) for file in os.listdir(scans_dir)])
             poses = sorted([os.path.join(poses_dir, file) for file in os.listdir(poses_dir)])
 
-            map_pth = os.path.join(self.root_dir, "sequence", sequence, "map_transform")
-            paths = [map_pth] * len(scans)
+            map_transform_pth = os.path.join(self.root_dir, "sequence", sequence, "map_transform")
+            transform_paths = [map_transform_pth] * len(scans)
 
             seq_scans.extend(scans)
             seq_poses.extend(poses)
-            map_transform.extend(paths)
+            map_transform.extend(transform_paths)
 
         assert len(seq_scans) == len(seq_poses) == len(map_transform), 'The length of those arrays should be the same!'
 
@@ -194,13 +196,12 @@ class BacchusDataset(Dataset):
         scan_data[:,:3] = self.transform_point_cloud(scan_data[:,:3], map_transform)
 
         # Sampling center
-        center = pose_data[:3, 3]
+        # center = pose_data[:3, 3]
 
-        scan_idx = self.select_points_within_radius(scan_data[:, :3], center)
-        submap_idx = self.select_points_within_radius(self.map[:, :3], center)
+        submap_idx = self.select_closest_points(scan_data[:,:3], self.map[:, :3])
 
-        scan_points = torch.tensor(scan_data[scan_idx, :3]).to(torch.float32).reshape(-1, 3)
-        scan_labels = torch.tensor(scan_data[scan_idx, 3]).to(torch.float32).reshape(-1, 1)
+        scan_points = torch.tensor(scan_data[:, :3]).to(torch.float32).reshape(-1, 3)
+        scan_labels = torch.tensor(scan_data[:, 3]).to(torch.float32).reshape(-1, 1)
         submap_points = torch.tensor(self.map[submap_idx, :3]).to(torch.float32).reshape(-1, 3)
         submap_labels = torch.tensor(self.map[submap_idx, 3]).to(torch.float32).reshape(-1, 1)
 
@@ -232,6 +233,19 @@ class BacchusDataset(Dataset):
         # Select the indexes of points within the radius
         indexes = np.where(distances <= self.cfg["DATA"]["RADIUS"])[0]
         return indexes
+
+    def select_closest_points(self, reference_points, target_points):
+        kd_tree_ref = cKDTree(reference_points[:,:3])
+        kd_tree_tar = cKDTree(target_points[:,:3])
+        indexes = kd_tree_ref.query_ball_tree(kd_tree_tar, r=0.1)
+        
+        # Merge the indexes into one array using numpy.concatenate and list comprehension
+        merged_indexes = np.concatenate([idx_list for idx_list in indexes])
+
+        # Convert the merged_indexes to int data type
+        merged_indexes = merged_indexes.astype(int)
+
+        return merged_indexes
 
     def transform_point_cloud(self, point_cloud, transformation_matrix):
         # Convert point cloud to homogeneous coordinates

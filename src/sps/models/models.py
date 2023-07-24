@@ -34,7 +34,7 @@ class MOSNet(LightningModule):
         scores = self.model(coordinates)
         loss = self.loss(scores[scan_indices], gt_labels[scan_indices])
         r2 = self.r2score(scores[scan_indices], gt_labels[scan_indices])
-        self.log("train_loss", loss.item(), on_step=True)
+        self.log("train_loss", loss.item(), on_step=True, prog_bar=True)
         self.log("train_r2", r2.item(), on_step=True, prog_bar=True)
 
         torch.cuda.empty_cache()
@@ -47,9 +47,8 @@ class MOSNet(LightningModule):
         scores = self.model(coordinates)
         loss = self.loss(scores[scan_indices], gt_labels[scan_indices])
         r2 = self.r2score(scores[scan_indices], gt_labels[scan_indices])
-        self.log("val_loss", loss.item(), on_step=True)
+        self.log("val_loss", loss.item(), on_step=True, prog_bar=True)
         self.log("val_r2", r2.item(), on_step=True, prog_bar=True)
-
         torch.cuda.empty_cache()
         return {"val_loss": loss, "val_r2": r2}
 

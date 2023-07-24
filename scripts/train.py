@@ -50,11 +50,11 @@ def main(config):
     )
 
     # Logger
-    log_dir = "./logs"
+    log_dir = "./tb_logs"
     os.makedirs(log_dir, exist_ok=True)
 
     tb_logger = pl_loggers.TensorBoardLogger(
-        log_dir, name=cfg["EXPERIMENT"]["ID"], default_hp_metric=False
+        log_dir, name=cfg["EXPERIMENT"]["ID"]
     )
 
     print(torch.cuda.is_available())
@@ -62,7 +62,7 @@ def main(config):
     trainer = Trainer(
         accelerator="gpu",
         devices=1,
-        logger=[tb_logger],
+        logger=tb_logger,
         max_epochs=cfg["TRAIN"]["MAX_EPOCH"],
         callbacks=[
             lr_monitor,

@@ -14,14 +14,26 @@ from sensor_msgs.msg import PointCloud2, PointField
 
 import sps.models.models as models
 
+from torchmetrics import R2Score
+
+from scipy.spatial import KDTree
+from scipy.spatial import cKDTree
+
+import MinkowskiEngine as ME
 ''' Constants '''
 SCAN_TIMESTAMP = 1
 MAP_TIMESTAMP = 0
-CLOUD_ODOM_MAX_TIME_DIFF = 0.05 #seconds 
+
+LIDAR_FREQUENCY_HZ = 10
+
+# This time is indication of the filter health, so in order to achieve real time performance, 
+# the processing time if the filter need to be at least 2 times the maximum freqyency of the
+# Lidar. 
+INFERENCE_HEALTH_TIME_SEC = 1.0 / (2.0 * LIDAR_FREQUENCY_HZ)  
 
 ''' Define color thresholds '''
-GREEN_THRESHOLD = 0.1  # Adjust as needed
-RED_THRESHOLD = 0.2  # Adjust as needed
+GREEN_THRESHOLD = INFERENCE_HEALTH_TIME_SEC  # Adjust as needed
+RED_THRESHOLD = 2 * INFERENCE_HEALTH_TIME_SEC  # Adjust as needed
 
 class SPS():
     def __init__(self):
@@ -30,11 +42,13 @@ class SPS():
         self.odom_msg_stamp = 0
         self.center = [0, 0, 0]
         self.cfg = None
+        self.loss = torch.nn.MSELoss()
+        self.r2score = R2Score()
 
         ''' Retrieve parameters from ROS parameter server '''
         raw_cloud_topic = rospy.get_param('~raw_cloud', "/ndt/predicted/aligned_points")
         filtered_cloud_topic = rospy.get_param('~filtered_cloud', "/cloud_filtered")
-        self.weights_pth = rospy.get_param('~model_weights_pth', "/sps/best_models/last.ckpt")
+        self.weights_pth = rospy.get_param('~model_weights_pth', "/sps/tb_logs/SPS/version_3/checkpoints/last.ckpt")
         predicted_pose_topic = rospy.get_param('~predicted_pose', "/ndt/predicted/odom")
         self.threshold_dynamic = rospy.get_param('~epsilon', 0.85)
 
@@ -43,7 +57,8 @@ class SPS():
         rospy.Subscriber(predicted_pose_topic, Odometry, self.callback_odom)
 
         ''' Initialize the publisher '''
-        self.pub = rospy.Publisher(filtered_cloud_topic, PointCloud2, queue_size=10)
+        self.scan_pub = rospy.Publisher(filtered_cloud_topic, PointCloud2, queue_size=10)
+        self.submap_pub = rospy.Publisher('/submap', PointCloud2, queue_size=10)
 
         rospy.loginfo('raw_cloud: %s', raw_cloud_topic)
         rospy.loginfo('filtered_cloud: %s', filtered_cloud_topic)
@@ -64,6 +79,11 @@ class SPS():
             rospy.logerr('Failed to load point cloud map from %s', map_pth)
             sys.exit()
 
+        ds = self.cfg["MODEL"]["VOXEL_SIZE"]
+        self.quantization = torch.Tensor([ds, ds, ds, 1])
+
+        self.tree = cKDTree(self.point_cloud_map)
+
         rospy.spin()
 
 
@@ -79,8 +99,9 @@ class SPS():
         cloud_msg_stamp = pointcloud_msg.header.stamp.to_sec()
         time_diff = abs(cloud_msg_stamp - self.odom_msg_stamp)
 
-        if time_diff >= CLOUD_ODOM_MAX_TIME_DIFF:
-            raise AssertionError('Pose and point cloud messages should have the same timestamp!! Diff: %f' % time_diff)
+        # if time_diff >= CLOUD_ODOM_MAX_TIME_DIFF:
+            # raise AssertionError('Pose and point cloud messages should have the same timestamp!! Diff: %f' % time_diff)
+            # print(('Pose and point cloud messages should have the same timestamp!! Diff: %f' % time_diff))
 
         pc = ros_numpy.numpify(pointcloud_msg)
         height = pc.shape[0]
@@ -93,18 +114,23 @@ class SPS():
         scan[:, 3] = np.resize(pc['intensity'], height * width)
 
         ''' Get submap points '''
-        submap_indices = self.select_points_within_radius(self.point_cloud_map[:,:3], self.center)
+
+        # submap_indices = self.select_points_within_radius(self.point_cloud_map[:,:3], self.center)
+        submap_indices = self.select_closest_points(scan, self.point_cloud_map)
         submap_points = self.point_cloud_map[submap_indices, :3]
         # submap_labels = self.point_cloud_map[submap_indices, 3]
 
-        scan_indices = self.select_points_within_radius(scan[:,:3], self.center)
-        scan_points = scan[scan_indices, :3]
-        # scan_labels = scan[scan_indices, 3]
+        # scan_indices = self.select_points_within_radius(scan[:,:3], self.center)
+        scan_points = scan[:, :3]
+        scan_labels = scan[:, 3]
 
         ''' Infere the stability labels '''
-        scan = self.infer(scan_points, submap_points)
+        scan = self.infer(scan_points, submap_points, scan_labels)
 
-        self.pub.publish(self.to_rosmsg(scan, pointcloud_msg.header))
+        self.scan_pub.publish(self.to_rosmsg(scan, pointcloud_msg.header))
+
+        ''' Publish the submap points for debugging '''
+        self.submap_pub.publish(self.to_rosmsg(self.point_cloud_map, pointcloud_msg.header))
 
 
     def load_model(self):
@@ -131,6 +157,18 @@ class SPS():
         indexes = np.where(squared_distances <= self.cfg["DATA"]["RADIUS"] ** 2)[0]
         return indexes
     
+    def select_closest_points(self, reference_points, target_points):
+        kd_tree_ref = cKDTree(reference_points[:,:3])
+        kd_tree_tar = cKDTree(target_points[:,:3])
+        indexes = kd_tree_ref.query_ball_tree(kd_tree_tar, r=0.1)
+        
+        # Merge the indexes into one array using numpy.concatenate and list comprehension
+        merged_indexes = np.concatenate([idx_list for idx_list in indexes])
+
+        # Convert the merged_indexes to int data type
+        merged_indexes = merged_indexes.astype(int)
+
+        return merged_indexes
 
     def to_rosmsg(self, data, header):
         cloud = PointCloud2()
@@ -165,7 +203,7 @@ class SPS():
         return data
     
 
-    def print_infer_time(self, elapsed_time, frame_size):
+    def print_infer_time(self, elapsed_time, loss, r2):
         ''' Determine color code based on elapsed_time value '''
         if elapsed_time < GREEN_THRESHOLD:
             color_code = "\033[32m"  # Green
@@ -178,11 +216,11 @@ class SPS():
         reset_code = "\033[0m"
 
         ''' Format the log message with color codes '''
-        log_message = f"Frame inference: {color_code}{elapsed_time:.4f}{reset_code} sec [{color_code}{1/elapsed_time:.2f}{reset_code} Hz]. Size: {frame_size}"
+        log_message = f"Frame inference: {color_code}{elapsed_time:.4f}{reset_code} sec [{color_code}{1/elapsed_time:.2f}{reset_code} Hz]. loss: {loss:.4f}, r2: {r2:.4f}"
         rospy.loginfo(log_message)
 
 
-    def infer(self, scan, submap):
+    def infer(self, scan, submap, gt_scan_scores):
         # start_time = time.time()
 
         ''' Prepare the data for the model, it need to be like this [Batch, X, Y, Z, time] '''
@@ -212,12 +250,15 @@ class SPS():
         end_time = time.time()
         elapsed_time = end_time - start_time
 
-        self.print_infer_time(elapsed_time, len(scores))
-
         # start_time = time.time()
         ''' Find the indecies where the score is less than the threshold, i.e. filter out dynamic points '''
         scan_scores = scores[:len(scan)]
-        scan_points = scan_points[(scan_scores <= self.threshold_dynamic)]
+        scan_points = scan_points[(gt_scan_scores <= self.threshold_dynamic)]
+
+        loss = self.loss(torch.tensor(scan_scores), torch.tensor(gt_scan_scores))
+        r2 = self.r2score(torch.tensor(scan_scores), torch.tensor(gt_scan_scores))
+
+        self.print_infer_time(elapsed_time, loss, r2)
 
         # end_time = time.time()
         # elapsed_time = end_time - start_time

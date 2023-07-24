@@ -140,3 +140,5 @@ c_ws/devel/*
 c_ws/.catkin_tools/*
 
 
+tb_logs/*
+playgournd.py

@@ -60,7 +60,7 @@ RUN apt update && apt install -y --no-install-recommends nano build-essential \
     && apt clean && rm -rf /var/lib/apt/lists/*
 
 #Set numpy version to 1.20.1 as higher version cause issues in ros-numpy package 
-RUN pip3 install tensorboard install --upgrade numpy==1.20.1 
+RUN pip3 install tensorboard install --upgrade numpy==1.20.1 install scipy
 
 ##############################################
 # Install project related dependencies

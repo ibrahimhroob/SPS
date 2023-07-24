@@ -1,7 +1,7 @@
 <launch>
     <arg name="cloud_topic" default="/os_cloud_node/points" />
-    <arg name="scans_pth" default="/sps/data/sequence/20220420/scans" />
-    <arg name="rate" default="5" />
+    <arg name="scans_pth" default="/sps/data/sequence/20220714/scans" />
+    <arg name="rate" default="10" />
 
     <node pkg="sps_filter" type="pub_scans.py" name="Labelled_scans_publisher" output="screen">
         <param name="cloud_topic" type="string" value="$(arg cloud_topic)"/>
