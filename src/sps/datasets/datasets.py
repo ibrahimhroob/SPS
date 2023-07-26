@@ -21,6 +21,11 @@ from sps.datasets.augmentation import (
     rotate_perturbation_point_cloud,
 )
 
+import rospy
+from sensor_msgs.msg import PointCloud2, PointField
+
+import MinkowskiEngine as ME
+
 #####################################################################
 SCAN_TIMESTAMP = 1
 MAP__TIMESTAMP = 0
@@ -198,16 +203,21 @@ class BacchusDataset(Dataset):
         # Sampling center
         # center = pose_data[:3, 3]
 
-        submap_idx = self.select_closest_points(scan_data[:,:3], self.map[:, :3])
+        # submap_idx = self.select_closest_points(scan_data[:,:3], self.map[:, :3])
 
         scan_points = torch.tensor(scan_data[:, :3]).to(torch.float32).reshape(-1, 3)
         scan_labels = torch.tensor(scan_data[:, 3]).to(torch.float32).reshape(-1, 1)
-        submap_points = torch.tensor(self.map[submap_idx, :3]).to(torch.float32).reshape(-1, 3)
-        submap_labels = torch.tensor(self.map[submap_idx, 3]).to(torch.float32).reshape(-1, 1)
+        map_points = torch.tensor(self.map[:, :3]).to(torch.float32).reshape(-1, 3)
+        
+
+        submap_points = self.prune_map_points(scan_points, map_points)
+        submap_labels = 0.5 * torch.ones(submap_points.shape[0], 1)
+
 
         # Bind time stamp to scan and submap points
         scan_points = self.add_timestamp(scan_points, SCAN_TIMESTAMP)
         submap_points = self.add_timestamp(submap_points, MAP__TIMESTAMP)
+
 
         # Bind points label in the same tensor 
         scan_points = torch.hstack([scan_points, scan_labels])
@@ -246,6 +256,57 @@ class BacchusDataset(Dataset):
         merged_indexes = merged_indexes.astype(int)
 
         return merged_indexes
+
+
+    def prune_map_points(self, scan, pc_map):
+        ds = self.cfg['MODEL']['VOXEL_SIZE']
+        quantization = torch.Tensor([ds, ds, ds])
+
+        scan_coords = torch.div(scan, quantization.type_as(scan)).int()
+        scan_features = torch.zeros(scan.shape[0], 2)
+        scan_features[:, 0] = 1
+
+        map_coord = torch.div(pc_map, quantization.type_as(pc_map)).int()
+        map_features = torch.zeros(pc_map.shape[0], 2)
+        map_features[:, 1] = 1
+
+        scan_sparse = ME.SparseTensor(
+            features=scan_features, 
+            coordinates=scan_coords
+            )
+
+        map_sparse = ME.SparseTensor(
+            features=map_features, 
+            coordinates=map_coord,
+            coordinate_manager = scan_sparse.coordinate_manager
+            )
+
+        # Merge the two sparse tensors
+        union = ME.MinkowskiUnion()
+
+        output = union(scan_sparse, map_sparse)
+
+        # Only keep map points that lies in the same voxel as scan points
+        mask = (output.F[:,0] * output.F[:,1]) == 1
+
+        # Prune the merged tensors 
+        pruning = ME.MinkowskiPruning()
+
+        output = pruning(output, mask)
+
+        # Retrieve the original coordinates
+        submap_points = output.coordinates
+
+        # dequantize the points
+        submap_points = submap_points * ds
+
+        return  submap_points 
+
+
+
+
+
+        
 
     def transform_point_cloud(self, point_cloud, transformation_matrix):
         # Convert point cloud to homogeneous coordinates
