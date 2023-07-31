@@ -141,7 +141,7 @@ class SPS():
             for k, v in torch.load(self.weights_pth)["state_dict"].items()
         }
         state_dict = {k: v for k, v in state_dict.items() if "MOSLoss" not in k}
-        model = models.MOSNet(self.cfg)
+        model = models.SPSNet(self.cfg)
         model.model.MinkUNet.load_state_dict(state_dict)
         model = model.cuda()
         model.eval()

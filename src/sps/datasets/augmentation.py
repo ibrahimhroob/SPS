@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
-# @file      augmentation.py
-# @author    Benedikt Mersch     [mersch@igg.uni-bonn.de]
-# Copyright (c) 2022 Benedikt Mersch, all rights reserved
-import torch
 
+import torch
 
 def rotate_point_cloud(points):
     """Randomly rotate the point clouds to augment the dataset"""

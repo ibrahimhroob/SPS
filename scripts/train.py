@@ -1,38 +1,42 @@
 #!/usr/bin/env python3
-# @file      train.py
-# @author    Benedikt Mersch     [mersch@igg.uni-bonn.de]
-# Copyright (c) 2022 Benedikt Mersch, all rights reserved
+"""
+Training script for SPSNet model.
+"""
 
-import click
-import yaml
 import os
-import torch
+import yaml
+import click
 from pytorch_lightning import Trainer
 from pytorch_lightning import loggers as pl_loggers
-
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 
 import sps.datasets.datasets as datasets
 import sps.models.models as models
 
+import torch.multiprocessing as mp
+
+# Constants
+DEFAULT_CONFIG_PATH = "./config/config.yaml"
+LOG_DIR = "./tb_logs"
+
 
 @click.command()
-### Add your options here
 @click.option(
     "--config",
     "-c",
     type=str,
-    help="path to the config file (.yaml)",
-    default="./config/config.yaml",
+    help="Path to the config file (.yaml)",
+    default=DEFAULT_CONFIG_PATH,
 )
 def main(config):
+    mp.set_start_method('spawn')  # Set the start method to 'spawn' before creating any processes
     cfg = yaml.safe_load(open(config))
 
     # Load data and model
     data = datasets.BacchusModule(cfg)
+    model = models.SPSNet(cfg)
 
-    model = models.MOSNet(cfg)
-
+    """Set up the PyTorch Lightning trainer."""
     # Add callbacks
     lr_monitor = LearningRateMonitor(logging_interval="step")
     checkpoint_saver_loss = ModelCheckpoint(
@@ -42,38 +46,26 @@ def main(config):
         save_last=True,
     )
 
-    checkpoint_saver_r2 = ModelCheckpoint(
-        monitor="val_r2",
-        filename=cfg["EXPERIMENT"]["ID"] + "_{epoch:03d}_{val_moving_iou_step0:.3f}",
-        mode="max",
-        save_last=True,
-    )
-
     # Logger
-    log_dir = "./tb_logs"
-    os.makedirs(log_dir, exist_ok=True)
-
+    os.makedirs(LOG_DIR, exist_ok=True)
     tb_logger = pl_loggers.TensorBoardLogger(
-        log_dir, name=cfg["EXPERIMENT"]["ID"]
+        LOG_DIR, name=cfg["EXPERIMENT"]["ID"], default_hp_metric=False
     )
 
-    print(torch.cuda.is_available())
     # Setup trainer
     trainer = Trainer(
         accelerator="gpu",
         devices=1,
-        logger=tb_logger,
+        logger=[tb_logger],
         max_epochs=cfg["TRAIN"]["MAX_EPOCH"],
         callbacks=[
             lr_monitor,
             checkpoint_saver_loss,
-            checkpoint_saver_r2,
         ],
     )
 
     # Train!
     trainer.fit(model, data)
-
 
 if __name__ == "__main__":
     main()

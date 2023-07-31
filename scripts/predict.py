@@ -10,6 +10,7 @@ from pytorch_lightning import Trainer
 import sps.datasets.datasets as datasets
 import sps.models.models as models
 
+import torch.multiprocessing as mp
 
 @click.command()
 ### Add your options here
@@ -18,7 +19,7 @@ import sps.models.models as models
     "-w",
     type=str,
     help="path to checkpoint file (.ckpt) to do inference.",
-    default='/sps/.neptune/None/version_None/checkpoints/last.ckpt',
+    default='/sps/tb_logs/SPS_ME_Union/version_39/checkpoints/last.ckpt',
     # required=True,
 )
 @click.option(
@@ -30,6 +31,8 @@ import sps.models.models as models
     multiple=True,
 )
 def main(weights, sequence):
+    mp.set_start_method('spawn')  # Set the start method to 'spawn' before creating any processes
+    
     cfg = torch.load(weights)["hyper_parameters"]
 
     # if sequence:
@@ -44,14 +47,14 @@ def main(weights, sequence):
     data.setup()
 
     ckpt = torch.load(weights)
-    model = models.MOSNet(cfg)
+    model = models.SPSNet(cfg)
     model.load_state_dict(ckpt["state_dict"])
     model = model.cuda()
     model.eval()
     model.freeze()
 
     # Setup trainer
-    trainer = Trainer(gpus=1, logger=False)
+    trainer = Trainer(accelerator="gpu", devices=1, logger=False)
 
     # Infer!
     trainer.predict(model, data.val_dataloader())
