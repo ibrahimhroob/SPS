@@ -9,139 +9,64 @@ import numpy as np
 import rospy
 import ros_numpy
 
-from nav_msgs.msg import Odometry
 from sensor_msgs.msg import PointCloud2, PointField
 
 import sps.models.models as models
 
 from torchmetrics import R2Score
 
-from scipy.spatial import KDTree
-from scipy.spatial import cKDTree
-
 import MinkowskiEngine as ME
+
 ''' Constants '''
 SCAN_TIMESTAMP = 1
 MAP_TIMESTAMP = 0
 
-LIDAR_FREQUENCY_HZ = 10
-
-# This time is indication of the filter health, so in order to achieve real time performance, 
-# the processing time if the filter need to be at least 2 times the maximum freqyency of the
-# Lidar. 
-INFERENCE_HEALTH_TIME_SEC = 1.0 / (2.0 * LIDAR_FREQUENCY_HZ)  
-
-''' Define color thresholds '''
-GREEN_THRESHOLD = INFERENCE_HEALTH_TIME_SEC  # Adjust as needed
-RED_THRESHOLD = 2 * INFERENCE_HEALTH_TIME_SEC  # Adjust as needed
 
 class SPS():
     def __init__(self):
         rospy.init_node('Stable_Points_Segmentation')
 
-        self.odom_msg_stamp = 0
-        self.center = [0, 0, 0]
-        self.cfg = None
-        self.loss = torch.nn.MSELoss()
-        self.r2score = R2Score()
-
         ''' Retrieve parameters from ROS parameter server '''
         raw_cloud_topic = rospy.get_param('~raw_cloud', "/ndt/predicted/aligned_points")
         filtered_cloud_topic = rospy.get_param('~filtered_cloud', "/cloud_filtered")
-        self.weights_pth = rospy.get_param('~model_weights_pth', "/sps/tb_logs/SPS/version_3/checkpoints/last.ckpt")
-        predicted_pose_topic = rospy.get_param('~predicted_pose', "/ndt/predicted/odom")
-        self.threshold_dynamic = rospy.get_param('~epsilon', 0.85)
+        self.weights_pth = rospy.get_param('~model_weights_pth', "/sps/tb_logs/SPS_ME_Union/version_39/checkpoints/last.ckpt")
+        self.threshold_dynamic = rospy.get_param('~epsilon', 0.95)
 
         ''' Subscribe to ROS topics '''
         rospy.Subscriber(raw_cloud_topic, PointCloud2, self.callback_points)
-        rospy.Subscriber(predicted_pose_topic, Odometry, self.callback_odom)
 
         ''' Initialize the publisher '''
         self.scan_pub = rospy.Publisher(filtered_cloud_topic, PointCloud2, queue_size=10)
-        self.submap_pub = rospy.Publisher('/submap', PointCloud2, queue_size=10)
+        self.submap_pub = rospy.Publisher('/cloud_submap', PointCloud2, queue_size=10)
 
         rospy.loginfo('raw_cloud: %s', raw_cloud_topic)
-        rospy.loginfo('filtered_cloud: %s', filtered_cloud_topic)
+        rospy.loginfo('cloud_filtered: %s', filtered_cloud_topic)
+        rospy.loginfo('cloud_submap: %s', '/cloud_submap')
         rospy.loginfo('Upper threshold: %f', self.threshold_dynamic)
-        rospy.loginfo('Predicted pose: %s', predicted_pose_topic)
 
-        ''' The model need to be loaded before the map in order to init the self.cfg var '''
-        self.model = self.load_model()
+        ''' Load the model and the associated configs '''
+        self.model, self.cfg = self.load_model()
 
         ''' Load point cloud map '''
-        map_str = self.cfg["TRAIN"]["MAP"]
-        map_pth = os.path.join(str(os.environ.get("DATA")), "maps", map_str)
-        rospy.loginfo('Loading point cloud map, pth: %s' % (map_pth))
-        try:
-            self.point_cloud_map = np.loadtxt(map_pth, dtype=np.float32)
-            rospy.loginfo('Point cloud map loaded successfully!')
-        except:
-            rospy.logerr('Failed to load point cloud map from %s', map_pth)
-            sys.exit()
+        self.point_cloud_map = self.load_point_cloud_map()
 
-        ds = self.cfg["MODEL"]["VOXEL_SIZE"]
-        self.quantization = torch.Tensor([ds, ds, ds, 1])
-
-        self.tree = cKDTree(self.point_cloud_map)
+        self.ds = self.cfg["MODEL"]["VOXEL_SIZE"]
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.loss = torch.nn.MSELoss()
+        self.r2score = R2Score()
 
         rospy.spin()
 
 
-    def callback_odom(self, msg):
-        self.odom_msg_stamp = msg.header.stamp.to_sec()
-        x = msg.pose.pose.position.x
-        y = msg.pose.pose.position.y
-        z = msg.pose.pose.position.z
-        self.center = [x, y, z]
-
-
-    def callback_points(self, pointcloud_msg):
-        cloud_msg_stamp = pointcloud_msg.header.stamp.to_sec()
-        time_diff = abs(cloud_msg_stamp - self.odom_msg_stamp)
-
-        # if time_diff >= CLOUD_ODOM_MAX_TIME_DIFF:
-            # raise AssertionError('Pose and point cloud messages should have the same timestamp!! Diff: %f' % time_diff)
-            # print(('Pose and point cloud messages should have the same timestamp!! Diff: %f' % time_diff))
-
-        pc = ros_numpy.numpify(pointcloud_msg)
-        height = pc.shape[0]
-        width = pc.shape[1] if len(pc.shape) > 1 else 1
-
-        scan = np.zeros((height * width, 4), dtype=np.float32)
-        scan[:, 0] = np.resize(pc['x'], height * width)
-        scan[:, 1] = np.resize(pc['y'], height * width)
-        scan[:, 2] = np.resize(pc['z'], height * width)
-        scan[:, 3] = np.resize(pc['intensity'], height * width)
-
-        ''' Get submap points '''
-
-        # submap_indices = self.select_points_within_radius(self.point_cloud_map[:,:3], self.center)
-        submap_indices = self.select_closest_points(scan, self.point_cloud_map)
-        submap_points = self.point_cloud_map[submap_indices, :3]
-        # submap_labels = self.point_cloud_map[submap_indices, 3]
-
-        # scan_indices = self.select_points_within_radius(scan[:,:3], self.center)
-        scan_points = scan[:, :3]
-        scan_labels = scan[:, 3]
-
-        ''' Infere the stability labels '''
-        scan = self.infer(scan_points, submap_points, scan_labels)
-
-        self.scan_pub.publish(self.to_rosmsg(scan, pointcloud_msg.header))
-
-        ''' Publish the submap points for debugging '''
-        self.submap_pub.publish(self.to_rosmsg(self.point_cloud_map, pointcloud_msg.header))
-
-
     def load_model(self):
-        self.cfg = torch.load(self.weights_pth)["hyper_parameters"]
+        cfg = torch.load(self.weights_pth)["hyper_parameters"]
 
         state_dict = {
             k.replace("model.MinkUNet.", ""): v
             for k, v in torch.load(self.weights_pth)["state_dict"].items()
         }
         state_dict = {k: v for k, v in state_dict.items() if "MOSLoss" not in k}
-        model = models.SPSNet(self.cfg)
+        model = models.SPSNet(cfg)
         model.model.MinkUNet.load_state_dict(state_dict)
         model = model.cuda()
         model.eval()
@@ -149,26 +74,73 @@ class SPS():
 
         rospy.loginfo("Model loaded successfully!")
 
-        return model
-    
+        return model, cfg
 
-    def select_points_within_radius(self, coordinates, center):
-        squared_distances = np.sum((coordinates - center) ** 2, axis=1)
-        indexes = np.where(squared_distances <= self.cfg["DATA"]["RADIUS"] ** 2)[0]
-        return indexes
-    
-    def select_closest_points(self, reference_points, target_points):
-        kd_tree_ref = cKDTree(reference_points[:,:3])
-        kd_tree_tar = cKDTree(target_points[:,:3])
-        indexes = kd_tree_ref.query_ball_tree(kd_tree_tar, r=0.1)
+
+    def load_point_cloud_map(self):
+        map_id = self.cfg["TRAIN"]["MAP"]
+        map_pth = os.path.join(str(os.environ.get("DATA")), "maps", map_id)
+        __, file_extension = os.path.splitext(map_pth)
+        rospy.loginfo('Loading point cloud map, pth: %s' % (map_pth))
+        try:
+            point_cloud_map = np.load(map_pth) if file_extension == '.npy' else np.loadtxt(map_pth, dtype=np.float32)
+            point_cloud_map = torch.tensor(point_cloud_map[:, :4]).to(torch.float32).reshape(-1, 4)
+            rospy.loginfo('Point cloud map loaded successfully!')
+        except:
+            rospy.logerr('Failed to load point cloud map from %s', map_pth)
+            sys.exit()
+
+        return point_cloud_map
+
+
+    def prune_map_points(self, scan_data, pc_map_data):
+        start_time = time.time()
+        quantization = torch.Tensor([self.ds, self.ds, self.ds]).to(self.device)
+
+        '''we are only intrested in the coordinates of the points, thus we are keeping only the xyz columns'''
+        scan = scan_data[:,:3]
+        pc_map = pc_map_data[:,:3]
+
+        scan_coords = torch.div(scan, quantization.type_as(scan)).int().to(self.device)
+        scan_features = torch.zeros(scan.shape[0], 2).to(self.device)
+        scan_features[:, 0] = 1
+
+        map_coord = torch.div(pc_map, quantization.type_as(pc_map)).int().to(self.device)
+        map_features = torch.zeros(pc_map.shape[0], 2).to(self.device)
+        map_features[:, 1] = 1
+
+        map_sparse = ME.SparseTensor(
+            features=map_features, 
+            coordinates=map_coord,
+            )
+
+        scan_sparse = ME.SparseTensor(
+            features=scan_features, 
+            coordinates=scan_coords,
+            coordinate_manager = map_sparse.coordinate_manager
+            )
+
+        # Merge the two sparse tensors
+        union = ME.MinkowskiUnion()
+        output = union(scan_sparse, map_sparse)
+
+        # Only keep map points that lies in the same voxel as scan points
+        mask = (output.F[:,0] * output.F[:,1]) == 1
+
+        # Prune the merged tensors 
+        pruning = ME.MinkowskiPruning()
+        output = pruning(output, mask)
+
+        # Retrieve the original coordinates
+        submap_points = output.coordinates
+
+        # dequantize the points
+        submap_points = submap_points * self.ds
         
-        # Merge the indexes into one array using numpy.concatenate and list comprehension
-        merged_indexes = np.concatenate([idx_list for idx_list in indexes])
+        elapsed_time = time.time() - start_time
 
-        # Convert the merged_indexes to int data type
-        merged_indexes = merged_indexes.astype(int)
+        return  submap_points.cpu(), elapsed_time
 
-        return merged_indexes
 
     def to_rosmsg(self, data, header):
         cloud = PointCloud2()
@@ -201,31 +173,11 @@ class SPS():
         ones = torch.ones(len(data), 1, dtype=data.dtype)
         data = torch.hstack([data, ones * stamp])
         return data
-    
-
-    def print_infer_time(self, elapsed_time, loss, r2):
-        ''' Determine color code based on elapsed_time value '''
-        if elapsed_time < GREEN_THRESHOLD:
-            color_code = "\033[32m"  # Green
-        elif elapsed_time > RED_THRESHOLD:
-            color_code = "\033[31m"  # Red
-        else:
-            color_code = "\033[33m"  # Yellow
-
-        ''' Reset text color code '''
-        reset_code = "\033[0m"
-
-        ''' Format the log message with color codes '''
-        log_message = f"Frame inference: {color_code}{elapsed_time:.4f}{reset_code} sec [{color_code}{1/elapsed_time:.2f}{reset_code} Hz]. loss: {loss:.4f}, r2: {r2:.4f}"
-        rospy.loginfo(log_message)
 
 
-    def infer(self, scan, submap, gt_scan_scores):
-        # start_time = time.time()
-
-        ''' Prepare the data for the model, it need to be like this [Batch, X, Y, Z, time] '''
-        scan_points = torch.tensor(scan, dtype=torch.float32).reshape(-1, 3)
-        submap_points = torch.tensor(submap, dtype=torch.float32).reshape(-1, 3)
+    def infer(self, scan_points, submap_points):
+        assert scan_points.size(-1) == 3, f"Expected 3 columns, but the scan tensor has {scan_points.size(-1)} columns."
+        assert submap_points.size(-1) == 3, f"Expected 3 columns, but the submap tensor has {submap_points.size(-1)} columns."
 
         ''' Bind time stamp to scan and submap points '''
         scan_points = self.add_timestamp(scan_points, SCAN_TIMESTAMP)
@@ -237,38 +189,64 @@ class SPS():
         batch = torch.zeros(len(scan_submap_data), 1, dtype=scan_submap_data.dtype)
         tensor = torch.hstack([batch, scan_submap_data]) #.reshape(-1, 5)
 
-        # end_time = time.time()
-        # elapsed_time = end_time - start_time
-        # rospy.loginfo("Data preperation time: {:.4f} seconds [{:.2f} Hz]".format(elapsed_time, 1/elapsed_time))
-
         start_time = time.time()
         with torch.no_grad():
             ''' Move the data tensor to the GPU manually when using the model directly without PyTorch Lightning '''       
             scores = self.model.forward(tensor.cuda())  
-            scores = scores.cpu().data.numpy()
+            scores = scores.cpu()
 
         end_time = time.time()
         elapsed_time = end_time - start_time
 
-        # start_time = time.time()
         ''' Find the indecies where the score is less than the threshold, i.e. filter out dynamic points '''
-        scan_scores = scores[:len(scan)]
-        scan_points = scan_points[(gt_scan_scores <= self.threshold_dynamic)]
+        scan_scores = scores[:len(scan_points)]
 
-        loss = self.loss(torch.tensor(scan_scores), torch.tensor(gt_scan_scores))
-        r2 = self.r2score(torch.tensor(scan_scores), torch.tensor(gt_scan_scores))
+        return scan_scores, elapsed_time
+    
+    def callback_points(self, pointcloud_msg):
+        start_time = time.time()
+        pc = ros_numpy.numpify(pointcloud_msg)
+        height = pc.shape[0]
+        width = pc.shape[1] if len(pc.shape) > 1 else 1
 
-        self.print_infer_time(elapsed_time, loss, r2)
+        scan = np.zeros((height * width, 4), dtype=np.float32)
+        scan[:, 0] = np.resize(pc['x'], height * width)
+        scan[:, 1] = np.resize(pc['y'], height * width)
+        scan[:, 2] = np.resize(pc['z'], height * width)
+        scan[:, 3] = np.resize(pc['intensity'], height * width)
 
-        # end_time = time.time()
-        # elapsed_time = end_time - start_time
-        # rospy.loginfo("Filter processing time: {:.4f} seconds [{:.2f} Hz]".format(elapsed_time, 1/elapsed_time))
+        ''' convert scan points to torch tensor '''
+        scan_points = torch.tensor(scan[:,:3], dtype=torch.float32).reshape(-1, 3)
+        scan_labels = torch.tensor(scan[:, 3], dtype=torch.float32).reshape(-1, 1)
 
-        ''' Convert the torch tensor back to a NumPy array '''
-        scan_points = scan_points.numpy()
+        ''' Prune map points by keeping only the points that in the same voxel as of the scan points'''
+        submap_points, prune_time = self.prune_map_points(scan_points, self.point_cloud_map)
 
-        return scan_points
+        ''' Infere the stability labels '''
+        predicted_scan_labels, infer_time = self.infer(scan_points, submap_points)
 
+        ''' Calculate loss and r2 '''
+        loss = self.loss(predicted_scan_labels.view(-1), scan_labels.view(-1))
+        r2 = self.r2score(predicted_scan_labels.view(-1), scan_labels.view(-1))
+
+        ''' Filter the scan points based on the threshold'''
+        scan[:, 3] = predicted_scan_labels.numpy()
+        scan = scan[(predicted_scan_labels <= self.threshold_dynamic)]
+        self.scan_pub.publish(self.to_rosmsg(scan, pointcloud_msg.header))
+
+        ''' Publish the submap points for debugging '''
+        submap_labels = torch.ones(submap_points.shape[0], 1)
+        submap = torch.hstack([submap_points, submap_labels])
+        self.submap_pub.publish(self.to_rosmsg(submap.numpy(), pointcloud_msg.header))
+
+        ''' Print log message '''
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        log_message = f"Total: {elapsed_time:.4f} sec [{1/elapsed_time:.2f} Hz]. \
+            Prune: {prune_time:.4f} sec [{1/prune_time:.2f} Hz]. \
+            Infer: {infer_time:.4f} sec [{1/infer_time:.2f} Hz]. \
+            loss: {loss:.4f}, r2: {r2:.4f}"
+        rospy.loginfo(log_message)
 
 
 if __name__ == '__main__':

@@ -142,3 +142,7 @@ c_ws/.catkin_tools/*
 
 tb_logs/*
 playgournd.py
+lightning_logs/*
+scripts/lightning_logs/*
+*.swp
+*.ckpt

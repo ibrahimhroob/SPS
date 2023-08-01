@@ -1,7 +1,4 @@
 #!/usr/bin/env python3
-# @file      predict_confidences.py
-# @author    Benedikt Mersch     [mersch@igg.uni-bonn.de]
-# Copyright (c) 2022 Benedikt Mersch, all rights reserved
 
 import torch
 import click
@@ -25,36 +22,38 @@ import torch.multiprocessing as mp
 @click.option(
     "--sequence",
     "-seq",
-    type=int,
-    help="Run inference on a specific sequence. Otherwise, test split from config is used.",
-    default=None,
+    type=str,
+    help="Run inference on specific sequences. Otherwise, test split from config is used.",
+    default= ['20220420'], #['20220420', '20220601', '20220608', '20220629', '20220714'],
     multiple=True,
 )
 def main(weights, sequence):
     mp.set_start_method('spawn')  # Set the start method to 'spawn' before creating any processes
-    
+
     cfg = torch.load(weights)["hyper_parameters"]
 
-    # if sequence:
-    #     cfg["DATA"]["SPLIT"]["TEST"] = list(sequence)
+    if sequence:
+        cfg["DATA"]["SPLIT"]["TEST"] = list(sequence)
 
     cfg["TRAIN"]["BATCH_SIZE"] = 1
 
     # Load data and model
-    # cfg["DATA"]["SPLIT"]["TRAIN"] = cfg["DATA"]["SPLIT"]["TEST"]
-    # cfg["DATA"]["SPLIT"]["VAL"] = cfg["DATA"]["SPLIT"]["TEST"]
+    cfg["DATA"]["SPLIT"]["TRAIN"] = cfg["DATA"]["SPLIT"]["TEST"]
+    cfg["DATA"]["SPLIT"]["VAL"] = cfg["DATA"]["SPLIT"]["TEST"]
     data = datasets.BacchusModule(cfg)
     data.setup()
 
+    print(len(data.test_scans))
+
     ckpt = torch.load(weights)
-    model = models.SPSNet(cfg)
+    model = models.SPSNet(cfg, len(data.test_scans))
     model.load_state_dict(ckpt["state_dict"])
     model = model.cuda()
     model.eval()
     model.freeze()
 
     # Setup trainer
-    trainer = Trainer(accelerator="gpu", devices=1, logger=False)
+    trainer = Trainer(accelerator="gpu", devices=1, logger=None)
 
     # Infer!
     trainer.predict(model, data.val_dataloader())
