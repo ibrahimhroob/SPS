@@ -9,6 +9,8 @@ import numpy as np
 import rospy
 import ros_numpy
 
+from nav_msgs.msg import Odometry	
+from tf.transformations import quaternion_matrix
 from sensor_msgs.msg import PointCloud2, PointField
 
 import sps.models.models as models
@@ -30,19 +32,23 @@ class SPS():
         raw_cloud_topic = rospy.get_param('~raw_cloud', "/ndt/predicted/aligned_points")
         filtered_cloud_topic = rospy.get_param('~filtered_cloud', "/cloud_filtered")
         self.weights_pth = rospy.get_param('~model_weights_pth', "/sps/tb_logs/SPS_ME_Union/version_39/checkpoints/last.ckpt")
-        self.threshold_dynamic = rospy.get_param('~epsilon', 0.95)
+        self.threshold_dynamic = rospy.get_param('~epsilon', 0.92)
+        predicted_pose_topic = rospy.get_param('~predicted_pose', "/ndt/predicted/odom")
 
         ''' Subscribe to ROS topics '''
         rospy.Subscriber(raw_cloud_topic, PointCloud2, self.callback_points)
+        rospy.Subscriber(predicted_pose_topic, Odometry, self.callback_odom)
 
         ''' Initialize the publisher '''
         self.scan_pub = rospy.Publisher(filtered_cloud_topic, PointCloud2, queue_size=10)
         self.submap_pub = rospy.Publisher('/cloud_submap', PointCloud2, queue_size=10)
+        self.cloud_tr_pub = rospy.Publisher('/cloud_tr_debug', PointCloud2, queue_size=10)
 
         rospy.loginfo('raw_cloud: %s', raw_cloud_topic)
         rospy.loginfo('cloud_filtered: %s', filtered_cloud_topic)
         rospy.loginfo('cloud_submap: %s', '/cloud_submap')
         rospy.loginfo('Upper threshold: %f', self.threshold_dynamic)
+        rospy.loginfo('Predicted pose: %s', predicted_pose_topic)
 
         ''' Load the model and the associated configs '''
         self.model, self.cfg = self.load_model()
@@ -54,6 +60,8 @@ class SPS():
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.loss = torch.nn.MSELoss()
         self.r2score = R2Score()
+        self.odom_msg_stamp = 0	
+        self.transformation = None
 
         rospy.spin()
 
@@ -92,6 +100,16 @@ class SPS():
 
         return point_cloud_map
 
+
+    def transform_point_cloud(self, point_cloud, transformation_matrix):
+        # Convert point cloud to homogeneous coordinates
+        homogeneous_coords = np.hstack((point_cloud, np.ones((point_cloud.shape[0], 1))))
+        # Apply transformation matrix
+        transformed_coords = np.dot(homogeneous_coords, transformation_matrix.T)
+        # Convert back to Cartesian coordinates
+        transformed_point_cloud = transformed_coords[:, :3] / transformed_coords[:, 3][:, np.newaxis]
+        return transformed_point_cloud
+    
 
     def prune_map_points(self, scan_data, pc_map_data):
         start_time = time.time()
@@ -142,9 +160,11 @@ class SPS():
         return  submap_points.cpu(), elapsed_time
 
 
-    def to_rosmsg(self, data, header):
+    def to_rosmsg(self, data, header, frame_id=None):
         cloud = PointCloud2()
         cloud.header = header
+        if frame_id:
+            cloud.header.frame_id = frame_id
 
         ''' Define the fields for the filtered point cloud '''
         filtered_fields = [
@@ -203,6 +223,38 @@ class SPS():
 
         return scan_scores, elapsed_time
     
+
+    def callback_odom(self, odom_msg):
+        self.odom_msg_stamp = odom_msg.header.stamp.to_sec()
+
+        # Extract the translation and orientation from the Odometry message
+        x = odom_msg.pose.pose.position.x
+        y = odom_msg.pose.pose.position.y
+        z = odom_msg.pose.pose.position.z
+
+        qx = odom_msg.pose.pose.orientation.x
+        qy = odom_msg.pose.pose.orientation.y
+        qz = odom_msg.pose.pose.orientation.z
+        qw = odom_msg.pose.pose.orientation.w
+
+        # Create the translation matrix
+        translation_matrix = np.array([[1, 0, 0, x],
+                                    [0, 1, 0, y],
+                                    [0, 0, 1, z],
+                                    [0, 0, 0, 1]])
+
+        # Create the rotation matrix
+        rotation_matrix = quaternion_matrix([qx, qy, qz, qw])
+
+        # Compute the transformation matrix
+        transformation_matrix = np.dot(translation_matrix, rotation_matrix)
+
+        self.transformation = transformation_matrix
+
+        # rospy.loginfo("Transformation Matrix:")
+        # rospy.loginfo(transformation_matrix)
+
+
     def callback_points(self, pointcloud_msg):
         start_time = time.time()
         pc = ros_numpy.numpify(pointcloud_msg)
@@ -215,8 +267,10 @@ class SPS():
         scan[:, 2] = np.resize(pc['z'], height * width)
         scan[:, 3] = np.resize(pc['intensity'], height * width)
 
+        scan_tr = self.transform_point_cloud(scan[:,:3], self.transformation)
+
         ''' convert scan points to torch tensor '''
-        scan_points = torch.tensor(scan[:,:3], dtype=torch.float32).reshape(-1, 3)
+        scan_points = torch.tensor(scan_tr[:,:3], dtype=torch.float32).reshape(-1, 3)
         scan_labels = torch.tensor(scan[:, 3], dtype=torch.float32).reshape(-1, 1)
 
         ''' Prune map points by keeping only the points that in the same voxel as of the scan points'''
@@ -237,15 +291,17 @@ class SPS():
         ''' Publish the submap points for debugging '''
         submap_labels = torch.ones(submap_points.shape[0], 1)
         submap = torch.hstack([submap_points, submap_labels])
-        self.submap_pub.publish(self.to_rosmsg(submap.numpy(), pointcloud_msg.header))
+        self.submap_pub.publish(self.to_rosmsg(submap.numpy(), pointcloud_msg.header, 'map'))
+
+        ''' Publish the transformed point cloud for debugging '''
+        scan_tr = np.hstack([scan_tr[:,:3], predicted_scan_labels.numpy().reshape(-1, 1)])
+        self.cloud_tr_pub.publish(self.to_rosmsg(scan_tr, pointcloud_msg.header, 'map'))
+
 
         ''' Print log message '''
         end_time = time.time()
         elapsed_time = end_time - start_time
-        log_message = f"Total: {elapsed_time:.4f} sec [{1/elapsed_time:.2f} Hz]. \
-            Prune: {prune_time:.4f} sec [{1/prune_time:.2f} Hz]. \
-            Infer: {infer_time:.4f} sec [{1/infer_time:.2f} Hz]. \
-            loss: {loss:.4f}, r2: {r2:.4f}"
+        log_message = f"Total: {elapsed_time:.4f} sec [{1/elapsed_time:.2f} Hz]. Prune: {prune_time:.4f} sec [{1/prune_time:.2f} Hz]. Infer: {infer_time:.4f} sec [{1/infer_time:.2f} Hz]. loss: {loss:.4f}, r2: {r2:.4f}"
         rospy.loginfo(log_message)
 
 

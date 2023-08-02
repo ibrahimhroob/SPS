@@ -8,7 +8,6 @@ Panels:
         - /Odometry1/Shape1
         - /PointCloud21
         - /PointCloud22
-        - /PointCloud22/Status1
         - /PointCloud23
       Splitter Ratio: 0.5
     Tree Height: 654
@@ -86,16 +85,16 @@ Visualization Manager:
       Decay Time: 0
       Enabled: true
       Invert Rainbow: false
-      Max Color: 255; 255; 255
-      Min Color: 186; 189; 182
+      Max Color: 32; 74; 135
+      Min Color: 32; 74; 135
       Name: PointCloud2
       Position Transformer: XYZ
       Queue Size: 10
       Selectable: true
       Size (Pixels): 2
-      Size (m): 0.10000000149011612
+      Size (m): 0.20000000298023224
       Style: Spheres
-      Topic: /submap
+      Topic: /cloud_submap
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: false
@@ -140,7 +139,7 @@ Visualization Manager:
       Color: 255; 255; 255
       Color Transformer: Intensity
       Decay Time: 0
-      Enabled: true
+      Enabled: false
       Invert Rainbow: false
       Max Color: 164; 0; 0
       Min Color: 32; 74; 135
@@ -155,7 +154,7 @@ Visualization Manager:
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: false
-      Value: true
+      Value: false
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -185,25 +184,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/XYOrbit
-      Distance: 28.25624656677246
+      Distance: 10.5123872756958
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 17.64893913269043
-        Y: 0.5197343826293945
-        Z: 1.8799666577251628e-5
+        X: 3.8349480628967285
+        Y: -4.608598709106445
+        Z: 1.6316440451191738e-5
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.3797971308231354
+      Pitch: 0.7497968077659607
       Target Frame: os_sensor
       Value: XYOrbit (rviz)
-      Yaw: 5.860822677612305
+      Yaw: 5.410818099975586
     Saved: ~
 Window Geometry:
   Displays:
@@ -222,4 +221,4 @@ Window Geometry:
     collapsed: false
   Width: 1920
   X: 398
-  Y: 167
+  Y: 137
