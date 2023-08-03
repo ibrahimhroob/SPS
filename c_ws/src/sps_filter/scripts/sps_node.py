@@ -32,7 +32,7 @@ class SPS():
         raw_cloud_topic = rospy.get_param('~raw_cloud', "/ndt/predicted/aligned_points")
         filtered_cloud_topic = rospy.get_param('~filtered_cloud', "/cloud_filtered")
         self.weights_pth = rospy.get_param('~model_weights_pth', "/sps/tb_logs/SPS_ME_Union/version_39/checkpoints/last.ckpt")
-        self.threshold_dynamic = rospy.get_param('~epsilon', 0.92)
+        self.threshold_dynamic = rospy.get_param('~epsilon', 0.9)
         predicted_pose_topic = rospy.get_param('~predicted_pose', "/ndt/predicted/odom")
 
         ''' Subscribe to ROS topics '''
@@ -41,8 +41,9 @@ class SPS():
 
         ''' Initialize the publisher '''
         self.scan_pub = rospy.Publisher(filtered_cloud_topic, PointCloud2, queue_size=10)
-        self.submap_pub = rospy.Publisher('/cloud_submap', PointCloud2, queue_size=10)
         self.cloud_tr_pub = rospy.Publisher('/cloud_tr_debug', PointCloud2, queue_size=10)
+        self.submap_pub = rospy.Publisher('/cloud_submap', PointCloud2, queue_size=10)
+        self.submap_base_pub = rospy.Publisher('/cloud_submap_base', PointCloud2, queue_size=10)
 
         rospy.loginfo('raw_cloud: %s', raw_cloud_topic)
         rospy.loginfo('cloud_filtered: %s', filtered_cloud_topic)
@@ -109,7 +110,19 @@ class SPS():
         # Convert back to Cartesian coordinates
         transformed_point_cloud = transformed_coords[:, :3] / transformed_coords[:, 3][:, np.newaxis]
         return transformed_point_cloud
-    
+
+
+    def inverse_transform_point_cloud(self, transformed_point_cloud, transformation_matrix):
+        # Invert the transformation matrix
+        inv_transformation_matrix = np.linalg.inv(transformation_matrix)
+        # Convert transformed point cloud to homogeneous coordinates
+        homogeneous_coords = np.hstack((transformed_point_cloud, np.ones((transformed_point_cloud.shape[0], 1))))
+        # Apply inverse transformation matrix
+        original_coords = np.dot(homogeneous_coords, inv_transformation_matrix.T)
+        # Convert back to Cartesian coordinates
+        original_point_cloud = original_coords[:, :3] / original_coords[:, 3][:, np.newaxis]
+        return original_point_cloud
+
 
     def prune_map_points(self, scan_data, pc_map_data):
         start_time = time.time()
@@ -274,10 +287,14 @@ class SPS():
         scan_labels = torch.tensor(scan[:, 3], dtype=torch.float32).reshape(-1, 1)
 
         ''' Prune map points by keeping only the points that in the same voxel as of the scan points'''
-        submap_points, prune_time = self.prune_map_points(scan_points, self.point_cloud_map)
+        
 
         ''' Infere the stability labels '''
-        predicted_scan_labels, infer_time = self.infer(scan_points, submap_points)
+        if self.threshold_dynamic < 1:
+            submap_points, prune_time = self.prune_map_points(scan_points, self.point_cloud_map)
+            predicted_scan_labels, infer_time = self.infer(scan_points, submap_points)
+        else:
+            predicted_scan_labels, infer_time, prune_time = scan_labels.view(-1), 0.001, 0.001
 
         ''' Calculate loss and r2 '''
         loss = self.loss(predicted_scan_labels.view(-1), scan_labels.view(-1))
@@ -288,14 +305,19 @@ class SPS():
         scan = scan[(predicted_scan_labels <= self.threshold_dynamic)]
         self.scan_pub.publish(self.to_rosmsg(scan, pointcloud_msg.header))
 
+        ''' Publish the transformed point cloud for debugging '''
+        # scan_tr = np.hstack([scan_tr[:,:3], predicted_scan_labels.numpy().reshape(-1, 1)])
+        # self.cloud_tr_pub.publish(self.to_rosmsg(scan_tr, pointcloud_msg.header, 'map'))
+
         ''' Publish the submap points for debugging '''
         submap_labels = torch.ones(submap_points.shape[0], 1)
         submap = torch.hstack([submap_points, submap_labels])
         self.submap_pub.publish(self.to_rosmsg(submap.numpy(), pointcloud_msg.header, 'map'))
 
-        ''' Publish the transformed point cloud for debugging '''
-        scan_tr = np.hstack([scan_tr[:,:3], predicted_scan_labels.numpy().reshape(-1, 1)])
-        self.cloud_tr_pub.publish(self.to_rosmsg(scan_tr, pointcloud_msg.header, 'map'))
+        ''' Publish the submap points to the original coordinates '''
+        # submap = submap.numpy()
+        # submap[:,:3] = self.inverse_transform_point_cloud(submap[:,:3], self.transformation)
+        # self.submap_base_pub.publish(self.to_rosmsg(submap, pointcloud_msg.header, 'os_sensor'))
 
 
         ''' Print log message '''

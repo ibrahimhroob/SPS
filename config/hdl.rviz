@@ -54,22 +54,28 @@ Visualization Manager:
       Reference Frame: <Fixed Frame>
       Value: false
     - Class: rviz/TF
-      Enabled: false
+      Enabled: true
       Filter (blacklist): ""
       Filter (whitelist): ""
       Frame Timeout: 50
       Frames:
         All Enabled: true
+        map:
+          Value: true
+        ndt_odom:
+          Value: true
       Marker Scale: 4
       Name: TF
       Show Arrows: true
       Show Axes: true
       Show Names: true
       Tree:
-        {}
+        map:
+          ndt_odom:
+            {}
       Update Interval: 0
-      Value: false
-    - Alpha: 1
+      Value: true
+    - Alpha: 0.8999999761581421
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
         Max Value: 10
@@ -89,9 +95,9 @@ Visualization Manager:
       Position Transformer: XYZ
       Queue Size: 10
       Selectable: true
-      Size (Pixels): 1
-      Size (m): 0.009999999776482582
-      Style: Points
+      Size (Pixels): 2
+      Size (m): 0.05000000074505806
+      Style: Boxes
       Topic: /ndt/globalmap
       Unreliable: false
       Use Fixed Frame: true
@@ -100,8 +106,8 @@ Visualization Manager:
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
-        Max Value: 10
-        Min Value: -10
+        Max Value: 9.977742195129395
+        Min Value: -1.7571426630020142
         Value: true
       Axis: Z
       Channel Name: intensity
@@ -112,7 +118,7 @@ Visualization Manager:
       Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
-      Min Color: 255; 255; 255
+      Min Color: 186; 189; 182
       Name: PointCloud2
       Position Transformer: XYZ
       Queue Size: 10
@@ -215,45 +221,17 @@ Visualization Manager:
       Topic: /ndt/predicted/odom
       Unreliable: false
       Value: true
-    - Alpha: 1
-      Autocompute Intensity Bounds: true
-      Autocompute Value Bounds:
-        Max Value: 10
-        Min Value: -10
-        Value: true
-      Axis: Z
-      Channel Name: intensity
-      Class: rviz/PointCloud2
-      Color: 252; 233; 79
-      Color Transformer: FlatColor
-      Decay Time: 0
-      Enabled: false
-      Invert Rainbow: false
-      Max Color: 255; 255; 255
-      Min Color: 255; 255; 255
-      Name: PointCloud2
-      Position Transformer: XYZ
-      Queue Size: 10
-      Selectable: true
-      Size (Pixels): 2
-      Size (m): 0.03999999910593033
-      Style: Points
-      Topic: /ndt/predicted/aligned_points
-      Unreliable: false
-      Use Fixed Frame: true
-      Use rainbow: false
-      Value: false
     - Alpha: 0.5
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
-        Max Value: 10
-        Min Value: -10
+        Max Value: 7.400000095367432
+        Min Value: -1.3000000715255737
         Value: true
       Axis: Z
       Channel Name: intensity
       Class: rviz/PointCloud2
-      Color: 255; 255; 255
-      Color Transformer: Intensity
+      Color: 32; 74; 135
+      Color Transformer: FlatColor
       Decay Time: 0
       Enabled: true
       Invert Rainbow: false
@@ -300,25 +278,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/XYOrbit
-      Distance: 24.075088500976562
+      Distance: 9.203510284423828
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 23.4420223236084
-        Y: -6.530789375305176
-        Z: -1.7897198631544597e-5
+        X: 0.2442253828048706
+        Y: -1.2117152214050293
+        Z: -3.034118708455935e-5
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.5347967147827148
+      Pitch: 0.35479697585105896
       Target Frame: os_sensor
       Value: XYOrbit (rviz)
-      Yaw: 5.495416164398193
+      Yaw: 4.1953887939453125
     Saved: ~
 Window Geometry:
   Displays:
@@ -338,5 +316,5 @@ Window Geometry:
   Views:
     collapsed: false
   Width: 1869
-  X: 51
-  Y: 27
+  X: 329
+  Y: 141
