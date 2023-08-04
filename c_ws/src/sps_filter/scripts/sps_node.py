@@ -10,6 +10,7 @@ import rospy
 import ros_numpy
 
 from nav_msgs.msg import Odometry	
+from std_msgs.msg import Float32
 from tf.transformations import quaternion_matrix
 from sensor_msgs.msg import PointCloud2, PointField
 
@@ -29,7 +30,7 @@ class SPS():
         rospy.init_node('Stable_Points_Segmentation')
 
         ''' Retrieve parameters from ROS parameter server '''
-        raw_cloud_topic = rospy.get_param('~raw_cloud', "/ndt/predicted/aligned_points")
+        raw_cloud_topic = rospy.get_param('~raw_cloud', "/odometry_node/frame_estimated")
         filtered_cloud_topic = rospy.get_param('~filtered_cloud', "/cloud_filtered")
         self.weights_pth = rospy.get_param('~model_weights_pth', "/sps/tb_logs/SPS_ME_Union/version_39/checkpoints/last.ckpt")
         self.threshold_dynamic = rospy.get_param('~epsilon', 0.9)
@@ -44,6 +45,8 @@ class SPS():
         self.cloud_tr_pub = rospy.Publisher('/cloud_tr_debug', PointCloud2, queue_size=10)
         self.submap_pub = rospy.Publisher('/cloud_submap', PointCloud2, queue_size=10)
         self.submap_base_pub = rospy.Publisher('/cloud_submap_base', PointCloud2, queue_size=10)
+        self.loss_pub = rospy.Publisher('model_loss', Float32, queue_size=10)
+        self.r2_pub = rospy.Publisher('model_r2', Float32, queue_size=10)
 
         rospy.loginfo('raw_cloud: %s', raw_cloud_topic)
         rospy.loginfo('cloud_filtered: %s', filtered_cloud_topic)
@@ -299,6 +302,8 @@ class SPS():
         ''' Calculate loss and r2 '''
         loss = self.loss(predicted_scan_labels.view(-1), scan_labels.view(-1))
         r2 = self.r2score(predicted_scan_labels.view(-1), scan_labels.view(-1))
+        self.loss_pub.publish(loss)
+        self.r2_pub.publish(r2)
 
         ''' Filter the scan points based on the threshold'''
         scan[:, 3] = predicted_scan_labels.numpy()
