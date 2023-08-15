@@ -24,16 +24,21 @@ import MinkowskiEngine as ME
 SCAN_TIMESTAMP = 1
 MAP_TIMESTAMP = 0
 
+def mean(lst):
+    total = sum(lst)
+    count = len(lst)
+    mean = total / count
+    return mean
 
 class SPS():
     def __init__(self):
-        rospy.init_node('Stable_Points_Segmentation')
+        rospy.init_node('Stable_Points_Segmentation_hdl')
 
         ''' Retrieve parameters from ROS parameter server '''
-        raw_cloud_topic = rospy.get_param('~raw_cloud', "/odometry_node/frame_estimated")
+        raw_cloud_topic = rospy.get_param('~raw_cloud', "/ndt/predicted/aligned_points")
         filtered_cloud_topic = rospy.get_param('~filtered_cloud', "/cloud_filtered")
         self.weights_pth = rospy.get_param('~model_weights_pth', "/sps/tb_logs/SPS_ME_Union/version_39/checkpoints/last.ckpt")
-        self.threshold_dynamic = rospy.get_param('~epsilon', 0.9)
+        self.threshold_dynamic = rospy.get_param('~epsilon', 0.85)
         predicted_pose_topic = rospy.get_param('~predicted_pose', "/ndt/predicted/odom")
 
         ''' Subscribe to ROS topics '''
@@ -47,6 +52,8 @@ class SPS():
         self.submap_base_pub = rospy.Publisher('/cloud_submap_base', PointCloud2, queue_size=10)
         self.loss_pub = rospy.Publisher('model_loss', Float32, queue_size=10)
         self.r2_pub = rospy.Publisher('model_r2', Float32, queue_size=10)
+        self.scan_filter_ratio = rospy.Publisher('scan_filter_ratio', Float32, queue_size=10)
+        self.map_to_scan_ratio = rospy.Publisher('map_to_scan_ratio', Float32, queue_size=10)
 
         rospy.loginfo('raw_cloud: %s', raw_cloud_topic)
         rospy.loginfo('cloud_filtered: %s', filtered_cloud_topic)
@@ -67,8 +74,13 @@ class SPS():
         self.odom_msg_stamp = 0	
         self.transformation = None
 
-        rospy.spin()
+        ''' Debug buffers '''
+        self.loss_buffer = []
+        self.r2_buffer = []
+        self.scan_filter_buffer = []
+        self.map_filter_buffer = []
 
+        rospy.spin()
 
     def load_model(self):
         cfg = torch.load(self.weights_pth)["hyper_parameters"]
@@ -173,7 +185,7 @@ class SPS():
         
         elapsed_time = time.time() - start_time
 
-        return  submap_points.cpu(), elapsed_time
+        return  submap_points.cpu(), elapsed_time, len(scan_sparse)
 
 
     def to_rosmsg(self, data, header, frame_id=None):
@@ -282,6 +294,7 @@ class SPS():
         scan[:, 1] = np.resize(pc['y'], height * width)
         scan[:, 2] = np.resize(pc['z'], height * width)
         scan[:, 3] = np.resize(pc['intensity'], height * width)
+        scan_len_before = len(scan)
 
         scan_tr = self.transform_point_cloud(scan[:,:3], self.transformation)
 
@@ -294,7 +307,7 @@ class SPS():
 
         ''' Infere the stability labels '''
         if self.threshold_dynamic < 1:
-            submap_points, prune_time = self.prune_map_points(scan_points, self.point_cloud_map)
+            submap_points, prune_time, len_scan_coord = self.prune_map_points(scan_points, self.point_cloud_map)
             predicted_scan_labels, infer_time = self.infer(scan_points, submap_points)
         else:
             predicted_scan_labels, infer_time, prune_time = scan_labels.view(-1), 0.001, 0.001
@@ -304,6 +317,8 @@ class SPS():
         r2 = self.r2score(predicted_scan_labels.view(-1), scan_labels.view(-1))
         self.loss_pub.publish(loss)
         self.r2_pub.publish(r2)
+        self.loss_buffer.append(loss)
+        self.r2_buffer.append(r2)
 
         ''' Filter the scan points based on the threshold'''
         scan[:, 3] = predicted_scan_labels.numpy()
@@ -324,12 +339,33 @@ class SPS():
         # submap[:,:3] = self.inverse_transform_point_cloud(submap[:,:3], self.transformation)
         # self.submap_base_pub.publish(self.to_rosmsg(submap, pointcloud_msg.header, 'os_sensor'))
 
+        scan_len_after = len(scan)
+
+        '''Publish scan filter ration and map to scan ratio'''
+        scan_filter_ratio = (scan_len_after/scan_len_before) * 100.0
+        map_to_scan_ratio = (len(submap_labels) / len_scan_coord) * 100.0
+        self.scan_filter_ratio.publish(scan_filter_ratio)
+        self.map_to_scan_ratio.publish(map_to_scan_ratio)
+        self.scan_filter_buffer.append(scan_filter_ratio)
+        self.map_filter_buffer.append(map_to_scan_ratio)
+
 
         ''' Print log message '''
         end_time = time.time()
         elapsed_time = end_time - start_time
-        log_message = f"Total: {elapsed_time:.4f} sec [{1/elapsed_time:.2f} Hz]. Prune: {prune_time:.4f} sec [{1/prune_time:.2f} Hz]. Infer: {infer_time:.4f} sec [{1/infer_time:.2f} Hz]. loss: {loss:.4f}, r2: {r2:.4f}"
+        hz = lambda t: 1 / t if t else 0
+
+        log_message = (
+            f"T: {elapsed_time:.3f} sec [{hz(elapsed_time):.2f} Hz]. "
+            f"P: {prune_time:.3f} sec [{hz(prune_time):.2f} Hz]. "
+            f"I: {infer_time:.3f} sec [{hz(infer_time):.2f} Hz]. "
+            f"L: {loss:.3f}, r2: {r2:.3f}. "
+            f"N: {scan_len_before:d}, n: {scan_len_after:d}, "
+            f"S: {len_scan_coord:d}, "
+            f"M: {len(submap_labels):d}"
+        )
         rospy.loginfo(log_message)
+
 
 
 if __name__ == '__main__':

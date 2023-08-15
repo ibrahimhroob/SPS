@@ -31,18 +31,20 @@ class SPS():
 
         ''' Retrieve parameters from ROS parameter server '''
         raw_cloud_topic = rospy.get_param('~raw_cloud', "/odometry_node/frame_estimated")
-        filtered_cloud_topic = rospy.get_param('~filtered_cloud', "/cloud_filtered")
+        filtered_cloud_topic = rospy.get_param('~filtered_cloud', "/cloud_filtered_kiss")
         self.weights_pth = rospy.get_param('~model_weights_pth', "/sps/tb_logs/SPS_ME_Union/version_39/checkpoints/last.ckpt")
-        self.threshold_dynamic = rospy.get_param('~epsilon', 0.95)
+        self.threshold_dynamic = rospy.get_param('~epsilon', 0.85)
 
         ''' Subscribe to ROS topics '''
         rospy.Subscriber(raw_cloud_topic, PointCloud2, self.callback_points)
 
+        rospy.Subscriber("/odometry_node/local_map", PointCloud2, self.global_map)
+
         ''' Initialize the publisher '''
         self.scan_pub = rospy.Publisher(filtered_cloud_topic, PointCloud2, queue_size=10)
-        self.submap_pub = rospy.Publisher('/cloud_submap', PointCloud2, queue_size=10)
-        self.loss_pub = rospy.Publisher('model_loss', Float32, queue_size=10)
-        self.r2_pub = rospy.Publisher('model_r2', Float32, queue_size=10)
+        self.submap_pub = rospy.Publisher('/cloud_submap_kiss', PointCloud2, queue_size=10)
+        self.loss_pub = rospy.Publisher('model_loss_kiss', Float32, queue_size=10)
+        self.r2_pub = rospy.Publisher('model_r2_kiss', Float32, queue_size=10)
 
         rospy.loginfo('raw_cloud: %s', raw_cloud_topic)
         rospy.loginfo('cloud_filtered: %s', filtered_cloud_topic)
@@ -53,7 +55,8 @@ class SPS():
         self.model, self.cfg = self.load_model()
 
         ''' Load point cloud map '''
-        self.point_cloud_map = self.load_point_cloud_map()
+        # self.point_cloud_map = self.load_point_cloud_map()
+        self.point_cloud_map = None
 
         self.ds = self.cfg["MODEL"]["VOXEL_SIZE"]
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -146,7 +149,7 @@ class SPS():
         
         elapsed_time = time.time() - start_time
 
-        return  submap_points.cpu(), elapsed_time
+        return  submap_points.cpu(), elapsed_time, len(scan_sparse)
 
 
     def to_rosmsg(self, data, header, frame_id=None):
@@ -213,6 +216,23 @@ class SPS():
         return scan_scores, elapsed_time
 
 
+    def global_map(self, pointcloud_msg):
+        if self.point_cloud_map == None:
+            pc = ros_numpy.numpify(pointcloud_msg)
+            height = pc.shape[0]
+            width = pc.shape[1] if len(pc.shape) > 1 else 1
+
+            gmap = np.zeros((height * width, 3), dtype=np.float32)
+            gmap[:, 0] = np.resize(pc['x'], height * width)
+            gmap[:, 1] = np.resize(pc['y'], height * width)
+            gmap[:, 2] = np.resize(pc['z'], height * width)
+
+            gmap = torch.tensor(gmap[:, :3]).to(torch.float32).reshape(-1, 3)
+
+            self.point_cloud_map = gmap
+
+            rospy.loginfo('Global map revieved with %d points' % (len(gmap)))
+
     def callback_points(self, pointcloud_msg):
         start_time = time.time()
         pc = ros_numpy.numpify(pointcloud_msg)
@@ -231,7 +251,7 @@ class SPS():
         scan_labels = torch.tensor(scan[:, 3], dtype=torch.float32).reshape(-1, 1)
 
         ''' Prune map points by keeping only the points that in the same voxel as of the scan points'''
-        submap_points, prune_time = self.prune_map_points(scan_points, self.point_cloud_map)
+        submap_points, prune_time, len_scan_coord = self.prune_map_points(scan_points, self.point_cloud_map)
 
         ''' Infere the stability labels '''
         predicted_scan_labels, infer_time = self.infer(scan_points, submap_points)
@@ -243,16 +263,18 @@ class SPS():
         self.r2_pub.publish(r2)
 
         ''' Filter the scan points based on the threshold'''
-        scan[:, 3] = predicted_scan_labels.numpy()
-        scan = scan[(predicted_scan_labels <= self.threshold_dynamic)]
-        self.scan_pub.publish(self.to_rosmsg(scan, pointcloud_msg.header))
+        scan[:, 3] = predicted_scan_labels = predicted_scan_labels.numpy()
+        condition = predicted_scan_labels <= self.threshold_dynamic
+        indexes = np.where(condition)[0]
+        filtered_scan = scan[indexes, :]
+        self.scan_pub.publish(self.to_rosmsg(filtered_scan, pointcloud_msg.header))
 
         ''' Publish the submap points for debugging '''
         submap_labels = torch.ones(submap_points.shape[0], 1)
         submap = torch.hstack([submap_points, submap_labels])
         self.submap_pub.publish(self.to_rosmsg(submap.numpy(), pointcloud_msg.header))
 
-        scan_len_after = len(scan)
+        scan_len_after = len(filtered_scan)
 
         ''' Print log message '''
         end_time = time.time()
@@ -260,11 +282,13 @@ class SPS():
         hz = lambda t: 1 / t if t else 0
 
         log_message = (
-            f"Total: {elapsed_time:.4f} sec [{hz(elapsed_time):.2f} Hz]. "
-            f"Prune: {prune_time:.4f} sec [{hz(prune_time):.2f} Hz]. "
-            f"Infer: {infer_time:.4f} sec [{hz(infer_time):.2f} Hz]. "
-            f"loss: {loss:.4f}, r2: {r2:.4f}. "
-            f"N: {scan_len_before:.4f}, n: {scan_len_after:.4f}"
+            f"T: {elapsed_time:.3f} sec [{hz(elapsed_time):.2f} Hz]. "
+            f"P: {prune_time:.3f} sec [{hz(prune_time):.2f} Hz]. "
+            f"I: {infer_time:.3f} sec [{hz(infer_time):.2f} Hz]. "
+            f"L: {loss:.3f}, r2: {r2:.3f}. "
+            f"N: {scan_len_before:d}, n: {scan_len_after:d}, "
+            f"S: {len_scan_coord:d}, "
+            f"M: {len(submap_labels):d}"
         )
         rospy.loginfo(log_message)
 
