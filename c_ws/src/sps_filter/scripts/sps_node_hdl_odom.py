@@ -297,14 +297,15 @@ class SPS():
         submap_points, prune_time, len_scan_coord = self.prune_map_points(scan_points, self.point_cloud_map)
         
         ''' Step 4: Infer the stability labels'''
-        # predicted_scan_labels, infer_time = self.infer(scan_points, submap_points)
+        predicted_scan_labels, infer_time = self.infer(scan_points, submap_points)
+        predicted_scan_labels = predicted_scan_labels.reshape(-1)
         
         ''' The following line is for debugging mainly to test the model with the true lables!! '''
-        predicted_scan_labels, infer_time = scan_labels.view(-1), 0.001
+        # predicted_scan_labels, infer_time = scan_labels.view(-1), 0.001
 
         ''' Step 5: Calculate loss and r2 '''
-        loss = self.loss(predicted_scan_labels.view(-1), scan_labels.view(-1))
-        r2 = self.r2score(predicted_scan_labels.view(-1), scan_labels.view(-1))
+        loss = self.loss(predicted_scan_labels, scan_labels.view(-1))
+        r2 = self.r2score(predicted_scan_labels, scan_labels.view(-1))
         self.loss_pub.publish(loss)
         self.r2_pub.publish(r2)
         self.loss_buffer.append(loss)
@@ -317,19 +318,20 @@ class SPS():
         # filtered_scan = self.scan[indexes, :]
         # self.scan_pub.publish(self.to_rosmsg(filtered_scan, self.scan_msg_header))
 
-        filtered_scan = self.scan[(self.scan[:,3] < self.threshold_dynamic) & (self.scan[:,3] >= 0.05)]
+        assert len(predicted_scan_labels) == len(self.scan), f"Predicted scans labels len ({len(predicted_scan_labels)}) does not equal scan len ({len(self.scan)})"
+        filtered_scan = self.scan[(predicted_scan_labels < self.threshold_dynamic)]
         self.scan_pub.publish(self.to_rosmsg(filtered_scan, self.scan_msg_header))
 
 
 
         ''' Publish the transformed point cloud for debugging '''
-        # scan_tr = np.hstack([scan_tr[:,:3], predicted_scan_labels.numpy().reshape(-1, 1)])
-        # self.cloud_tr_pub.publish(self.to_rosmsg(scan_tr, pointcloud_msg.header, 'map'))
+        # scan_tr = np.hstack([scan_tr[:,:3], predicted_scan_labels.numpy()[0]])
+        # self.cloud_tr_pub.publish(self.to_rosmsg(scan_tr, self.scan_msg_header, 'map'))
 
         ''' Publish the submap points for debugging '''
         submap_labels = torch.ones(submap_points.shape[0], 1)
-        submap = torch.hstack([submap_points, submap_labels])
-        self.submap_pub.publish(self.to_rosmsg(submap.numpy(), self.scan_msg_header, 'map'))
+        # submap = torch.hstack([submap_points, submap_labels])
+        # self.submap_pub.publish(self.to_rosmsg(submap.numpy(), self.scan_msg_header, 'map'))
 
         ''' Publish the submap points to the original coordinates '''
         # submap = submap.numpy()

@@ -27,7 +27,7 @@ Panels:
     Experimental: false
     Name: Time
     SyncMode: 0
-    SyncSource: PointCloud2
+    SyncSource: GlobalMap
 Preferences:
   PromptSaveOnExit: true
 Toolbars:
@@ -103,6 +103,34 @@ Visualization Manager:
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
+    - Alpha: 0.5
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 7.400000095367432
+        Min Value: -1.3000000715255737
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz/PointCloud2
+      Color: 32; 74; 135
+      Color Transformer: FlatColor
+      Decay Time: 0
+      Enabled: true
+      Invert Rainbow: false
+      Max Color: 52; 101; 164
+      Min Color: 32; 74; 135
+      Name: SubMap
+      Position Transformer: XYZ
+      Queue Size: 10
+      Selectable: true
+      Size (Pixels): 3
+      Size (m): 0.20000000298023224
+      Style: Spheres
+      Topic: /cloud_submap
+      Unreliable: false
+      Use Fixed Frame: true
+      Use rainbow: true
+      Value: true
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
@@ -127,6 +155,34 @@ Visualization Manager:
       Size (m): 0.14000000059604645
       Style: Spheres
       Topic: /ndt/aligned_points
+      Unreliable: false
+      Use Fixed Frame: true
+      Use rainbow: false
+      Value: true
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 9.977742195129395
+        Min Value: -1.7571426630020142
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz/PointCloud2
+      Color: 237; 212; 0
+      Color Transformer: FlatColor
+      Decay Time: 0
+      Enabled: true
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Min Color: 186; 189; 182
+      Name: EstimatedFrame
+      Position Transformer: XYZ
+      Queue Size: 10
+      Selectable: true
+      Size (Pixels): 1
+      Size (m): 0.14000000059604645
+      Style: Points
+      Topic: /cloud_tr_debug
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: false
@@ -209,34 +265,6 @@ Visualization Manager:
       Topic: /ndt/predicted/odom
       Unreliable: false
       Value: true
-    - Alpha: 0.5
-      Autocompute Intensity Bounds: true
-      Autocompute Value Bounds:
-        Max Value: 7.400000095367432
-        Min Value: -1.3000000715255737
-        Value: true
-      Axis: Z
-      Channel Name: intensity
-      Class: rviz/PointCloud2
-      Color: 32; 74; 135
-      Color Transformer: FlatColor
-      Decay Time: 0
-      Enabled: true
-      Invert Rainbow: false
-      Max Color: 52; 101; 164
-      Min Color: 32; 74; 135
-      Name: SubMap
-      Position Transformer: XYZ
-      Queue Size: 10
-      Selectable: true
-      Size (Pixels): 3
-      Size (m): 0.20000000298023224
-      Style: Spheres
-      Topic: /cloud_submap
-      Unreliable: false
-      Use Fixed Frame: true
-      Use rainbow: true
-      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -266,7 +294,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/XYOrbit
-      Distance: 63.423988342285156
+      Distance: 43.22167205810547
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -302,5 +330,5 @@ Window Geometry:
   Views:
     collapsed: false
   Width: 1869
-  X: 329
-  Y: 111
+  X: 51
+  Y: 27
