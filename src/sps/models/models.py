@@ -47,7 +47,7 @@ class SPSNet(pl.LightningModule):
     def forward(self, batch):
         coordinates = batch[:, :5].reshape(-1, 5)
         scores = self.model(coordinates)
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
         return scores
 
     def common_step(self, batch):

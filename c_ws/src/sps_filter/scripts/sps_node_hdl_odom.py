@@ -48,23 +48,28 @@ class SPS():
 
         ''' Load configs '''
         cfg = torch.load(weights_pth)["hyper_parameters"]
+        cfg['DATA']['NUM_WORKER'] = 12
         rospy.loginfo(cfg)
 
         ''' Load the model '''
         self.model = util.load_model(cfg, weights_pth)
-
-        ''' Load point cloud map '''
-        self.point_cloud_map = util.load_point_cloud_map(cfg)
 
         ''' Get VOXEL_SIZE for quantization '''
         self.ds = cfg["MODEL"]["VOXEL_SIZE"]
 
         ''' Get available device '''
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        ''' Load point cloud map '''
+        pc_map_tensor = util.load_point_cloud_map(cfg)
+        self.pc_map_coord_feat = util.to_coords_features(pc_map_tensor,
+                                                         feature_type='map',
+                                                         ds=self.ds, 
+                                                         device=self.device)
         
         ''' Define loss and r2score for model evaluation '''
-        self.loss = torch.nn.MSELoss()
-        self.r2score = R2Score()
+        self.loss = torch.nn.MSELoss().to(self.device)
+        self.r2score = R2Score().to(self.device)
         
         ''' Variable to hold point cloud frame '''
         self.scan = None
@@ -104,18 +109,24 @@ class SPS():
             scan_tr = util.transform_point_cloud(self.scan[:,:3], transformation_matrix)
 
             ''' Step 2: convert scan points to torch tensor '''
-            scan_points = torch.tensor(scan_tr[:,:3], dtype=torch.float32).reshape(-1, 3)
-            scan_labels = torch.tensor(self.scan[:, 3], dtype=torch.float32).reshape(-1, 1)
+            scan_points = torch.tensor(scan_tr[:,:3], dtype=torch.float32).reshape(-1, 3).to(self.device)
+            scan_labels = torch.tensor(self.scan[:, 3], dtype=torch.float32).reshape(-1, 1).to(self.device)
 
             ''' Step 3: Prune map points by keeping only the points that in the same voxel as of the scan points'''
-            submap_points, prune_time, len_scan_coord = util.prune_map_points(self.ds, scan_points, self.point_cloud_map, self.device)
-            
+            start_time = time.time()
+            scan_coord_feat = util.to_coords_features(scan_points,
+                                                      feature_type='scan',
+                                                      ds=self.ds,
+                                                      device=self.device)
+            submap_points, len_scan_coord = util.prune(self.pc_map_coord_feat, scan_coord_feat, self.ds) 
+            prune_time = time.time() - start_time
+
             ''' Step 4: Infer the stability labels'''
             if self.use_gt_labels:
                 rospy.logwarn("The model inference is disabled, and ground truth labels are being used.")
                 predicted_scan_labels, infer_time = scan_labels.view(-1), 0.001
             else:
-                predicted_scan_labels, infer_time = util.infer(scan_points, submap_points, self.model)
+                predicted_scan_labels, infer_time = util.infer(scan_points, submap_points, self.model, self.device)
 
             ''' Step 5: Calculate loss and r2 '''
             loss = self.loss(predicted_scan_labels.view(-1), scan_labels.view(-1))
@@ -125,16 +136,17 @@ class SPS():
 
             ''' Step 6: Filter the scan points based on the threshold'''
             assert len(predicted_scan_labels) == len(self.scan), f"Predicted scans labels len ({len(predicted_scan_labels)}) does not equal scan len ({len(self.scan)})"
-            filtered_scan = self.scan[(predicted_scan_labels < self.epsilon)]
+            filtered_scan = self.scan[(predicted_scan_labels.cpu() < self.epsilon)]
             self.scan_pub.publish(util.to_rosmsg(filtered_scan, self.scan_msg_header))
 
             ''' Publish the transformed point cloud for debugging '''
             if self.pub_cloud_tr:
-                psl = predicted_scan_labels.numpy().reshape(-1,1)
+                psl = predicted_scan_labels.cpu().data.numpy().reshape(-1,1)
                 scan_tr = np.hstack([scan_tr[:,:3], psl])
                 self.cloud_tr_pub.publish(util.to_rosmsg(scan_tr, self.scan_msg_header, 'map'))
 
             ''' Publish the submap points for debugging '''
+            submap_points = submap_points.cpu()
             submap_labels = torch.ones(submap_points.shape[0], 1)
             if self.pub_submap:
                 submap = torch.hstack([submap_points, submap_labels])
