@@ -20,8 +20,12 @@ import MinkowskiEngine as ME
 SCAN_TIMESTAMP = 1
 MAP_TIMESTAMP = 0
 
+#assert submap_points.size(-1) == 3, f"Expected 3 columns, but the submap tensor has {submap_points.size(-1)} columns."
 
-def load_model(cfg, weights_pth):
+def load_model(cfg=None, weights_pth=None):
+    assert cfg != None, "cfg is None!"
+    assert weights_pth != None, "weights_pth is None!"
+
     state_dict = {
         k.replace("model.MinkUNet.", ""): v
         for k, v in torch.load(weights_pth)["state_dict"].items()
@@ -35,9 +39,11 @@ def load_model(cfg, weights_pth):
 
     rospy.loginfo("Model loaded successfully!")
 
-    return model, cfg
+    return model
 
 def load_point_cloud_map(cfg):
+    assert cfg != None, "cfg is None!"
+
     map_id = cfg["TRAIN"]["MAP"]
     map_pth = os.path.join(str(os.environ.get("DATA")), "maps", map_id)
     __, file_extension = os.path.splitext(map_pth)
@@ -45,7 +51,7 @@ def load_point_cloud_map(cfg):
     try:
         point_cloud_map = np.load(map_pth) if file_extension == '.npy' else np.loadtxt(map_pth, dtype=np.float32)
         point_cloud_map = torch.tensor(point_cloud_map[:, :4]).to(torch.float32).reshape(-1, 4)
-        rospy.loginfo('Point cloud map loaded successfully!')
+        rospy.loginfo('Point cloud map loaded successfully with %d points', len(point_cloud_map))
     except:
         rospy.logerr('Failed to load point cloud map from %s', map_pth)
         sys.exit()
@@ -80,21 +86,21 @@ def prune_map_points(ds, scan_data, point_cloud_map, device):
         coordinate_manager = map_sparse.coordinate_manager
         )
 
-    # Merge the two sparse tensors
+    ''' Merge the two sparse tensors '''
     union = ME.MinkowskiUnion()
     output = union(scan_sparse, map_sparse)
 
-    # Only keep map points that lies in the same voxel as scan points
+    ''' Only keep map points that lies in the same voxel as scan points '''
     mask = (output.F[:,0] * output.F[:,1]) == 1
 
-    # Prune the merged tensors 
+    ''' Prune the merged tensors '''
     pruning = ME.MinkowskiPruning()
     output = pruning(output, mask)
 
-    # Retrieve the original coordinates
+    ''' Retrieve the original coordinates '''
     submap_points = output.coordinates
 
-    # dequantize the points
+    ''' dequantize the points '''
     submap_points = submap_points * ds
     
     elapsed_time = time.time() - start_time
@@ -175,6 +181,7 @@ def infer(scan_points, submap_points, model):
 
     return scan_scores, elapsed_time
 
+
 def transform_point_cloud(point_cloud, transformation_matrix):
     # Convert point cloud to homogeneous coordinates
     homogeneous_coords = np.hstack((point_cloud, np.ones((point_cloud.shape[0], 1))))
@@ -196,6 +203,7 @@ def inverse_transform_point_cloud(transformed_point_cloud, transformation_matrix
     original_point_cloud = original_coords[:, :3] / original_coords[:, 3][:, np.newaxis]
     return original_point_cloud
 
+
 def to_tr_matrix(odom_msg):
     # Extract the translation and orientation from the Odometry message
     x = odom_msg.pose.pose.position.x
@@ -208,10 +216,10 @@ def to_tr_matrix(odom_msg):
     qw = odom_msg.pose.pose.orientation.w
 
     # Create the translation matrix
-    translation_matrix = np.array([[1, 0, 0, x],
-                                [0, 1, 0, y],
-                                [0, 0, 1, z],
-                                [0, 0, 0, 1]])
+    translation_matrix = np.array( [[1, 0, 0, x],
+                                    [0, 1, 0, y],
+                                    [0, 0, 1, z],
+                                    [0, 0, 0, 1]] )
 
     # Create the rotation matrix
     rotation_matrix = quaternion_matrix([qx, qy, qz, qw])
