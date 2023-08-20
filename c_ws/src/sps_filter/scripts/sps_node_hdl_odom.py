@@ -69,6 +69,7 @@ class SPS():
         ''' Variable to hold point cloud frame '''
         self.scan = None
         self.scan_msg_header = None
+        self.scan_received = False
 
         ''' Create a lock '''
         self.lock = threading.Lock()
@@ -79,10 +80,12 @@ class SPS():
     def callback_points(self, pointcloud_msg):
         self.scan = util.to_numpy(pointcloud_msg)
         self.scan_msg_header = pointcloud_msg.header
+        self.scan_received = True
 
 
     def callback_odom(self, odom_msg):
-        assert self.scan_msg_header != None, "pointcloud_msg not received!"
+        assert self.scan_received, "pointcloud_msg not received!"
+        self.scan_received = False
 
         ''' Acquire the lock '''
         with self.lock:
@@ -143,9 +146,9 @@ class SPS():
             hz = lambda t: 1 / t if t else 0
 
             log_message = (
-                f"T: {elapsed_time:.3f} sec [{hz(elapsed_time):.2f} Hz] "
-                f"P: {prune_time:.3f} sec [{hz(prune_time):.2f} Hz] "
-                f"I: {infer_time:.3f} sec [{hz(infer_time):.2f} Hz] "
+                f"T: {elapsed_time:.3f} [{hz(elapsed_time):.2f} Hz] "
+                f"P: {prune_time:.3f} [{hz(prune_time):.2f} Hz] "
+                f"I: {infer_time:.3f} [{hz(infer_time):.2f} Hz] "
                 f"L: {loss:.3f} r2: {r2:.3f} "
                 f"N: {len(self.scan):d} n: {len(filtered_scan):d} "
                 f"S: {len_scan_coord:d} M: {len(submap_labels):d}"

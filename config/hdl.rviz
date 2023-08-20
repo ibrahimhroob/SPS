@@ -4,7 +4,6 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
-        - /Global Options1
         - /Odometry1/Shape1
         - /Odometry2/Shape1
       Splitter Ratio: 0.5
@@ -169,12 +168,12 @@ Visualization Manager:
       Channel Name: intensity
       Class: rviz/PointCloud2
       Color: 237; 212; 0
-      Color Transformer: FlatColor
+      Color Transformer: Intensity
       Decay Time: 0
       Enabled: true
       Invert Rainbow: false
-      Max Color: 255; 255; 255
-      Min Color: 186; 189; 182
+      Max Color: 252; 233; 79
+      Min Color: 196; 160; 0
       Name: EstimatedFrame
       Position Transformer: XYZ
       Queue Size: 10
@@ -182,7 +181,7 @@ Visualization Manager:
       Size (Pixels): 1
       Size (m): 0.14000000059604645
       Style: Points
-      Topic: /cloud_tr_debug
+      Topic: /raw_cloud_tr_debug
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: false
@@ -294,7 +293,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/XYOrbit
-      Distance: 43.22167205810547
+      Distance: 29.374685287475586
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
