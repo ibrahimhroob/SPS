@@ -182,7 +182,7 @@ def infer(scan_points, submap_points, model, device="cuda"):
 
     elapsed_time = time.time() - start_time
 
-    return scan_scores, elapsed_time
+    return scan_scores.to(device), elapsed_time
 
 
 def transform_point_cloud(point_cloud, transformation_matrix):

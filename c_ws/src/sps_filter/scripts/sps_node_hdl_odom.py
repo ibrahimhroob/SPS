@@ -89,7 +89,9 @@ class SPS():
 
 
     def callback_odom(self, odom_msg):
-        assert self.scan_received, "pointcloud_msg not received!"
+        if self.scan_received == False:
+            rospy.logerr("pointcloud_msg not received!")
+            return
         self.scan_received = False
 
         ''' Acquire the lock '''
