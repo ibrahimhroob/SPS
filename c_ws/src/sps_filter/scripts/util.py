@@ -20,8 +20,6 @@ import MinkowskiEngine as ME
 SCAN_TIMESTAMP = 1
 MAP_TIMESTAMP = 0
 
-#assert submap_points.size(-1) == 3, f"Expected 3 columns, but the submap tensor has {submap_points.size(-1)} columns."
-
 def load_model(cfg=None, weights_pth=None):
     assert cfg != None, "cfg is None!"
     assert weights_pth != None, "weights_pth is None!"

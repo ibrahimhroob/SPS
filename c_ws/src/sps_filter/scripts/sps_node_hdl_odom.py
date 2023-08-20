@@ -129,7 +129,7 @@ class SPS():
             if self.pub_cloud_tr:
                 psl = predicted_scan_labels.numpy().reshape(-1,1)
                 scan_tr = np.hstack([scan_tr[:,:3], psl])
-                self.cloud_tr_pub.publish(self.to_rosmsg(scan_tr, self.scan_msg_header, 'map'))
+                self.cloud_tr_pub.publish(util.to_rosmsg(scan_tr, self.scan_msg_header, 'map'))
 
             ''' Publish the submap points for debugging '''
             submap_labels = torch.ones(submap_points.shape[0], 1)
