@@ -2,8 +2,9 @@
     <arg name="model_weights_pth" default="/sps/tb_logs/SPS_ME_Union/version_39/checkpoints/last.ckpt" />
     <arg name="epsilon" default="0.85" />
 
-    <node pkg="sps_filter" type="sps_node_hdl_odom.py" name="Stable_Points_Segmentation" output="screen">
+    <node pkg="sps_filter" type="sps_node_kiss.py" name="Stable_Points_Segmentation" output="screen">
         <param name="model_weights_pth" type="string" value="$(arg model_weights_pth)"/>
         <param name="epsilon" type="double" value="$(arg epsilon)"/>
+        <param name="use_gt_labels" type="bool" value="true"/>
     </node>
 </launch>
