@@ -32,15 +32,11 @@ class SPS():
         self.pub_cloud_tr  = rospy.get_param('~pub_cloud_tr', True)
 
         ''' Subscribe to ROS topics '''
-        # rospy.Subscriber(raw_cloud_topic, PointCloud2, self.callback_points)
-        # rospy.Subscriber(predicted_pose_topic, Odometry, self.callback_odom)
-
         odom_sub = message_filters.Subscriber(predicted_pose_topic, Odometry)
         scan_sub = message_filters.Subscriber(raw_cloud_topic, PointCloud2)
 
         ts = message_filters.TimeSynchronizer([odom_sub, scan_sub], 10)
         ts.registerCallback(self.callback)
-
 
         ''' Initialize the publisher '''
         self.scan_pub     = rospy.Publisher(filtered_cloud_topic, PointCloud2, queue_size=10)
@@ -85,7 +81,7 @@ class SPS():
         self.scan_received = False
 
         ''' Create a lock '''
-        self.lock = threading.Lock()
+        # self.lock = threading.Lock()
 
         rospy.spin()
 
@@ -165,93 +161,6 @@ class SPS():
             f"S: {len_scan_coord:d} M: {len(submap_labels):d}"
         )
         rospy.loginfo(log_message)
-        
-
-    # def callback_points(self, pointcloud_msg):
-    #     self.scan = util.to_numpy(pointcloud_msg)
-    #     self.scan_msg_header = pointcloud_msg.header
-
-
-    def callback_odom(self, odom_msg):
-        if self.scan_received == False:
-            rospy.logerr("pointcloud_msg not received!")
-            return
-        self.scan_received = False
-
-        ''' Acquire the lock '''
-        with self.lock:
-
-            start_time = time.time()
-            odom_msg_stamp = odom_msg.header.stamp.to_sec()
-
-            transformation_matrix = util.to_tr_matrix(odom_msg)
-
-            ''' Step 0: make sure the time stamp for odom and scan are the same!'''
-            df = odom_msg_stamp - self.scan_msg_header.stamp.to_sec()
-            if df != 0:
-                rospy.logwarn(f"Odom and scan time stamp is out of sync! time difference is {df} sec.")
-
-            ''' Step 1: Transform the scan '''
-            scan_tr = util.transform_point_cloud(self.scan[:,:3], transformation_matrix)
-
-            ''' Step 2: convert scan points to torch tensor '''
-            scan_points = torch.tensor(scan_tr[:,:3], dtype=torch.float32).reshape(-1, 3).to(self.device)
-            scan_labels = torch.tensor(self.scan[:, 3], dtype=torch.float32).reshape(-1, 1).to(self.device)
-
-            ''' Step 3: Prune map points by keeping only the points that in the same voxel as of the scan points'''
-            start_time = time.time()
-            scan_coord_feat = util.to_coords_features(scan_points,
-                                                      feature_type='scan',
-                                                      ds=self.ds,
-                                                      device=self.device)
-            submap_points, len_scan_coord = util.prune(self.pc_map_coord_feat, scan_coord_feat, self.ds) 
-            prune_time = time.time() - start_time
-
-            ''' Step 4: Infer the stability labels'''
-            if self.use_gt_labels:
-                rospy.logwarn("The model inference is disabled, and ground truth labels are being used.")
-                predicted_scan_labels, infer_time = scan_labels.view(-1), 0.001
-            else:
-                predicted_scan_labels, infer_time = util.infer(scan_points, submap_points, self.model, self.device)
-
-            ''' Step 5: Calculate loss and r2 '''
-            loss = self.loss(predicted_scan_labels.view(-1), scan_labels.view(-1))
-            r2 = self.r2score(predicted_scan_labels.view(-1), scan_labels.view(-1))
-            self.loss_pub.publish(loss)
-            self.r2_pub.publish(r2)
-
-            ''' Step 6: Filter the scan points based on the threshold'''
-            assert len(predicted_scan_labels) == len(self.scan), f"Predicted scans labels len ({len(predicted_scan_labels)}) does not equal scan len ({len(self.scan)})"
-            filtered_scan = self.scan[(predicted_scan_labels.cpu() < self.epsilon)]
-            self.scan_pub.publish(util.to_rosmsg(filtered_scan, self.scan_msg_header))
-
-            ''' Publish the transformed point cloud for debugging '''
-            if self.pub_cloud_tr:
-                psl = predicted_scan_labels.cpu().data.numpy().reshape(-1,1)
-                scan_tr = np.hstack([scan_tr[:,:3], psl])
-                self.cloud_tr_pub.publish(util.to_rosmsg(scan_tr, self.scan_msg_header, 'odom'))
-
-            ''' Publish the submap points for debugging '''
-            submap_points = submap_points.cpu()
-            submap_labels = torch.ones(submap_points.shape[0], 1)
-            if self.pub_submap:
-                submap = torch.hstack([submap_points, submap_labels])
-                self.submap_pub.publish(util.to_rosmsg(submap.numpy(), self.scan_msg_header, 'odom'))
-
-            ''' Print log message '''
-            end_time = time.time()
-            elapsed_time = end_time - start_time
-            hz = lambda t: 1 / t if t else 0
-
-            log_message = (
-                f"T: {elapsed_time:.3f} [{hz(elapsed_time):.2f} Hz] "
-                f"P: {prune_time:.3f} [{hz(prune_time):.2f} Hz] "
-                f"I: {infer_time:.3f} [{hz(infer_time):.2f} Hz] "
-                f"L: {loss:.3f} r2: {r2:.3f} "
-                f"N: {len(self.scan):d} n: {len(filtered_scan):d} "
-                f"S: {len_scan_coord:d} M: {len(submap_labels):d}"
-            )
-            rospy.loginfo(log_message)
         
 
 if __name__ == '__main__':
