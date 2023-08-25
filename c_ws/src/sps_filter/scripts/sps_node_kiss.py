@@ -23,7 +23,7 @@ class SPS():
 
         weights_pth = rospy.get_param('~model_weights_pth', "/sps/tb_logs/SPS_ME_Union/version_39/checkpoints/last.ckpt")
         
-        self.epsilon       = rospy.get_param('~epsilon', 1)
+        self.epsilon       = rospy.get_param('~epsilon', 0.85)
         self.use_gt_labels = rospy.get_param('~use_gt_labels', False)
         self.pub_submap    = rospy.get_param('~pub_submap', True)
 
@@ -55,8 +55,8 @@ class SPS():
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         ''' Load point cloud map '''
-        pc_map_tensor = util.load_point_cloud_map(cfg)
-        self.pc_map_coord_feat = util.to_coords_features(pc_map_tensor,
+        self.pc_map_tensor = util.load_point_cloud_map(cfg)
+        self.pc_map_coord_feat = util.to_coords_features(self.pc_map_tensor,
                                                          feature_type='map',
                                                          ds=self.ds, 
                                                          device=self.device)
