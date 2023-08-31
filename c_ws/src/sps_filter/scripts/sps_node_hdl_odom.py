@@ -4,7 +4,6 @@ import time
 import torch
 import numpy as np
 
-import util
 import rospy
 import threading
 
@@ -13,6 +12,8 @@ from nav_msgs.msg import Odometry
 from sensor_msgs.msg import PointCloud2
 
 from torchmetrics import R2Score
+
+from sps.datasets import util
 
 class SPS():
     def __init__(self):

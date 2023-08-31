@@ -1,0 +1,4 @@
+<launch>
+    <node pkg="mos4d" type="mos4d_node.py" name="moving_objects_segmentation" output="screen">
+    </node>
+</launch>

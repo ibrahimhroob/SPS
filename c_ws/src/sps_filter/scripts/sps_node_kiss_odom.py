@@ -4,9 +4,7 @@ import time
 import torch
 import numpy as np
 
-import util
 import rospy
-import threading
 
 import message_filters
 from std_msgs.msg import Float32
@@ -14,6 +12,8 @@ from nav_msgs.msg import Odometry
 from sensor_msgs.msg import PointCloud2
 
 from torchmetrics import R2Score
+
+from sps.datasets import util
 
 class SPS():
     def __init__(self):
@@ -26,7 +26,7 @@ class SPS():
 
         weights_pth = rospy.get_param('~model_weights_pth', "/sps/tb_logs/SPS_ME_Union/version_39/checkpoints/last.ckpt")
 
-        self.epsilon       = rospy.get_param('~epsilon', 0.85)
+        self.epsilon       = rospy.get_param('~epsilon', 0.84)
         self.use_gt_labels = rospy.get_param('~use_gt_labels', False)
         self.pub_submap    = rospy.get_param('~pub_submap', True)
         self.pub_cloud_tr  = rospy.get_param('~pub_cloud_tr', True)
@@ -131,8 +131,8 @@ class SPS():
 
         ''' Step 6: Filter the scan points based on the threshold'''
         assert len(predicted_scan_labels) == len(self.scan), f"Predicted scans labels len ({len(predicted_scan_labels)}) does not equal scan len ({len(self.scan)})"
-        filtered_scan = self.scan[(predicted_scan_labels.cpu() < self.epsilon)]
-        self.scan_pub.publish(util.to_rosmsg(filtered_scan, self.scan_msg_header))
+        filtered_scan = self.scan[(predicted_scan_labels.cpu() <= self.epsilon)]
+        self.scan_pub.publish(util.to_rosmsg(filtered_scan, self.scan_msg_header, 'odom'))
 
         ''' Publish the transformed point cloud for debugging '''
         if self.pub_cloud_tr:
@@ -142,6 +142,8 @@ class SPS():
 
         ''' Publish the submap points for debugging '''
         submap_points = submap_points.cpu()
+        # submap_points = util.inverse_transform_point_cloud(submap_points, transformation_matrix)
+        # submap_points = torch.tensor(submap_points)
         submap_labels = torch.ones(submap_points.shape[0], 1)
         if self.pub_submap:
             submap = torch.hstack([submap_points, submap_labels])
