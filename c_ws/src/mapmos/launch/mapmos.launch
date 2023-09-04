@@ -1,0 +1,4 @@
+<launch>
+    <node pkg="mapmos" type="mapmos_node_odom.py" name="moving_objects_segmentation_mapmos" output="screen">
+    </node>
+</launch>
