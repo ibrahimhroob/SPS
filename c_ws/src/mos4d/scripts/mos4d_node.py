@@ -21,10 +21,12 @@ class MOS4D():
 
         ''' Retrieve parameters from ROS parameter server '''
         raw_cloud_topic      = rospy.get_param('~raw_cloud', "/os_cloud_node/points")
-        filtered_cloud_topic = rospy.get_param('~filtered_cloud', "/cloud_filtered_kiss")
+        filtered_cloud_topic = rospy.get_param('~filtered_cloud', "/cloud_filtered")
         predicted_pose_topic = rospy.get_param('~predicted_pose', "/odometry_node/odometry_estimate")
 
         weights_pth = rospy.get_param('~model_weights_pth', "/sps/c_ws/src/mos4d/checkpoints/10_scans.ckpt")
+
+        self.filter = rospy.get_param('~filter', True)
 
         # Use regular expressions to find the integer
         self.buffer_size = re.search(r'(\d+)_scans\.ckpt', weights_pth)
@@ -110,7 +112,7 @@ class MOS4D():
 
         # Add batch index and pass through the model
         coordinates = torch.hstack([torch.zeros(len(merged_scans)).reshape(-1, 1).type_as(merged_scans), merged_scans])
-        predicted_logits = self.model.forward(coordinates)
+        predicted_logits = self.model.forward(coordinates) if self.filter else torch.zeros(len(merged_scans))
 
         end_time = time.time()
         elapsed_time = end_time - start_time
@@ -122,7 +124,7 @@ class MOS4D():
         scan_len = len(self.scan)
         scan_labels = predicted_logits[-scan_len:]
         self.scan = np.hstack((self.scan[:,:3], scan_labels.reshape(-1, 1)))
-        filtered_scan = self.scan[(scan_labels == 0)]
+        filtered_scan = self.scan[(scan_labels == 0)] if self.filter else self.scan
         self.scan_pub.publish(util.to_rosmsg(filtered_scan, self.scan_msg_header, 'odom'))
 
         self.mos4d_pub.publish(util.to_rosmsg(np.hstack((scan_tr[:,:3], scan_labels.reshape(-1, 1))), self.scan_msg_header, 'odom'))

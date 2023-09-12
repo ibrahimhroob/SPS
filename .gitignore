@@ -146,3 +146,4 @@ lightning_logs/*
 scripts/lightning_logs/*
 *.swp
 *.ckpt
+kiss_odom_ws/*

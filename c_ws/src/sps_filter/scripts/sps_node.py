@@ -1,354 +1,154 @@
 #!/usr/bin/env python3
 
-import os
-import sys
 import time
 import torch
 import numpy as np
 
 import rospy
-import ros_numpy
 
-from nav_msgs.msg import Odometry	
+import message_filters
 from std_msgs.msg import Float32
-from tf.transformations import quaternion_matrix
-from sensor_msgs.msg import PointCloud2, PointField
-
-import sps.models.models as models
+from nav_msgs.msg import Odometry	
+from sensor_msgs.msg import PointCloud2
 
 from torchmetrics import R2Score
 
-import MinkowskiEngine as ME
-
-''' Constants '''
-SCAN_TIMESTAMP = 1
-MAP_TIMESTAMP = 0
-
-def mean(lst):
-    total = sum(lst)
-    count = len(lst)
-    mean = total / count
-    return mean
+from sps.datasets import util
 
 class SPS():
     def __init__(self):
-        rospy.init_node('Stable_Points_Segmentation_hdl')
+        rospy.init_node('Stable_Points_Segmentation_node')
 
         ''' Retrieve parameters from ROS parameter server '''
-        raw_cloud_topic = rospy.get_param('~raw_cloud', "/ndt/predicted/aligned_points")
+        raw_cloud_topic      = rospy.get_param('~raw_cloud', "/os_cloud_node/points")
         filtered_cloud_topic = rospy.get_param('~filtered_cloud', "/cloud_filtered")
-        self.weights_pth = rospy.get_param('~model_weights_pth', "/sps/tb_logs/SPS_ME_Union/version_39/checkpoints/last.ckpt")
-        self.threshold_dynamic = rospy.get_param('~epsilon', 0.85)
-        predicted_pose_topic = rospy.get_param('~predicted_pose', "/ndt/predicted/odom")
+        predicted_pose_topic = rospy.get_param('~predicted_pose', "/odometry_node/odometry_estimate")
+
+        weights_pth = rospy.get_param('~model_weights_pth', "/sps/tb_logs/SPS_ME_Union/version_39/checkpoints/last.ckpt")
+
+        self.odom_frame    = rospy.get_param('~odom_frame', "odom")
+        self.epsilon       = rospy.get_param('~epsilon', 0.84)
+        self.use_gt_labels = rospy.get_param('~use_gt_labels', False)
+        self.pub_submap    = rospy.get_param('~pub_submap', True)
+        self.pub_cloud_tr  = rospy.get_param('~pub_cloud_tr', True)
 
         ''' Subscribe to ROS topics '''
-        rospy.Subscriber(raw_cloud_topic, PointCloud2, self.callback_points)
-        rospy.Subscriber(predicted_pose_topic, Odometry, self.callback_odom)
+        odom_sub = message_filters.Subscriber(predicted_pose_topic, Odometry)
+        scan_sub = message_filters.Subscriber(raw_cloud_topic, PointCloud2)
+
+        ts = message_filters.TimeSynchronizer([odom_sub, scan_sub], 10)
+        ts.registerCallback(self.callback)
 
         ''' Initialize the publisher '''
-        self.scan_pub = rospy.Publisher(filtered_cloud_topic, PointCloud2, queue_size=10)
-        self.cloud_tr_pub = rospy.Publisher('/cloud_tr_debug', PointCloud2, queue_size=10)
-        self.submap_pub = rospy.Publisher('/cloud_submap', PointCloud2, queue_size=10)
-        self.submap_base_pub = rospy.Publisher('/cloud_submap_base', PointCloud2, queue_size=10)
-        self.loss_pub = rospy.Publisher('model_loss', Float32, queue_size=10)
-        self.r2_pub = rospy.Publisher('model_r2', Float32, queue_size=10)
-        self.scan_filter_ratio = rospy.Publisher('scan_filter_ratio', Float32, queue_size=10)
-        self.map_to_scan_ratio = rospy.Publisher('map_to_scan_ratio', Float32, queue_size=10)
+        self.scan_pub     = rospy.Publisher(filtered_cloud_topic, PointCloud2, queue_size=10)
+        self.submap_pub   = rospy.Publisher('debug/cloud_submap', PointCloud2, queue_size=10)
+        self.cloud_tr_pub = rospy.Publisher('debug/raw_cloud_tr', PointCloud2, queue_size=10)
+        self.loss_pub     = rospy.Publisher('debug/model_loss', Float32, queue_size=10)
+        self.r2_pub       = rospy.Publisher('debug/model_r2', Float32, queue_size=10)
 
-        rospy.loginfo('raw_cloud: %s', raw_cloud_topic)
+        rospy.loginfo('raw_cloud:      %s', raw_cloud_topic)
         rospy.loginfo('cloud_filtered: %s', filtered_cloud_topic)
-        rospy.loginfo('cloud_submap: %s', '/cloud_submap')
-        rospy.loginfo('Upper threshold: %f', self.threshold_dynamic)
-        rospy.loginfo('Predicted pose: %s', predicted_pose_topic)
+        rospy.loginfo('predicted_pose: %s', predicted_pose_topic)
+        rospy.loginfo('epsilon:        %f', self.epsilon)
 
-        ''' Load the model and the associated configs '''
-        self.model, self.cfg = self.load_model()
+        ''' Load configs '''
+        cfg = torch.load(weights_pth)["hyper_parameters"]
+        cfg['DATA']['NUM_WORKER'] = 12
+        rospy.loginfo(cfg)
+
+        ''' Load the model '''
+        self.model = util.load_model(cfg, weights_pth)
+
+        ''' Get VOXEL_SIZE for quantization '''
+        self.ds = cfg["MODEL"]["VOXEL_SIZE"]
+
+        ''' Get available device '''
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         ''' Load point cloud map '''
-        self.point_cloud_map = self.load_point_cloud_map()
+        cfg["TRAIN"]["MAP"] = 'base_map.asc.npy'
+        pc_map_tensor = util.load_point_cloud_map(cfg)
+        self.pc_map_coord_feat = util.to_coords_features(pc_map_tensor,
+                                                         feature_type='map',
+                                                         ds=self.ds, 
+                                                         device=self.device)
+        
+        ''' Define loss and r2score for model evaluation '''
+        self.loss = torch.nn.MSELoss().to(self.device)
+        self.r2score = R2Score().to(self.device)
+        
+        ''' Variable to hold point cloud frame '''
+        self.scan = None
+        self.scan_msg_header = None
+        self.scan_received = False
 
-        self.ds = self.cfg["MODEL"]["VOXEL_SIZE"]
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.loss = torch.nn.MSELoss()
-        self.r2score = R2Score()
-        self.odom_msg_stamp = 0	
-        self.transformation = None
-
-        ''' Debug buffers '''
-        self.loss_buffer = []
-        self.r2_buffer = []
-        self.scan_filter_buffer = []
-        self.map_filter_buffer = []
+        ''' Create a lock '''
+        # self.lock = threading.Lock()
 
         rospy.spin()
 
-    def load_model(self):
-        cfg = torch.load(self.weights_pth)["hyper_parameters"]
 
-        state_dict = {
-            k.replace("model.MinkUNet.", ""): v
-            for k, v in torch.load(self.weights_pth)["state_dict"].items()
-        }
-        state_dict = {k: v for k, v in state_dict.items() if "MOSLoss" not in k}
-        model = models.SPSNet(cfg)
-        model.model.MinkUNet.load_state_dict(state_dict)
-        model = model.cuda()
-        model.eval()
-        model.freeze()
-
-        rospy.loginfo("Model loaded successfully!")
-
-        return model, cfg
-
-
-    def load_point_cloud_map(self):
-        map_id = self.cfg["TRAIN"]["MAP"]
-        map_pth = os.path.join(str(os.environ.get("DATA")), "maps", map_id)
-        __, file_extension = os.path.splitext(map_pth)
-        rospy.loginfo('Loading point cloud map, pth: %s' % (map_pth))
-        try:
-            point_cloud_map = np.load(map_pth) if file_extension == '.npy' else np.loadtxt(map_pth, dtype=np.float32)
-            point_cloud_map = torch.tensor(point_cloud_map[:, :4]).to(torch.float32).reshape(-1, 4)
-            rospy.loginfo('Point cloud map loaded successfully!')
-        except:
-            rospy.logerr('Failed to load point cloud map from %s', map_pth)
-            sys.exit()
-
-        return point_cloud_map
-
-
-    def transform_point_cloud(self, point_cloud, transformation_matrix):
-        # Convert point cloud to homogeneous coordinates
-        homogeneous_coords = np.hstack((point_cloud, np.ones((point_cloud.shape[0], 1))))
-        # Apply transformation matrix
-        transformed_coords = np.dot(homogeneous_coords, transformation_matrix.T)
-        # Convert back to Cartesian coordinates
-        transformed_point_cloud = transformed_coords[:, :3] / transformed_coords[:, 3][:, np.newaxis]
-        return transformed_point_cloud
-
-
-    def inverse_transform_point_cloud(self, transformed_point_cloud, transformation_matrix):
-        # Invert the transformation matrix
-        inv_transformation_matrix = np.linalg.inv(transformation_matrix)
-        # Convert transformed point cloud to homogeneous coordinates
-        homogeneous_coords = np.hstack((transformed_point_cloud, np.ones((transformed_point_cloud.shape[0], 1))))
-        # Apply inverse transformation matrix
-        original_coords = np.dot(homogeneous_coords, inv_transformation_matrix.T)
-        # Convert back to Cartesian coordinates
-        original_point_cloud = original_coords[:, :3] / original_coords[:, 3][:, np.newaxis]
-        return original_point_cloud
-
-
-    def prune_map_points(self, scan_data, pc_map_data):
-        start_time = time.time()
-        quantization = torch.Tensor([self.ds, self.ds, self.ds]).to(self.device)
-
-        '''we are only intrested in the coordinates of the points, thus we are keeping only the xyz columns'''
-        scan = scan_data[:,:3]
-        pc_map = pc_map_data[:,:3]
-
-        scan_coords = torch.div(scan, quantization.type_as(scan)).int().to(self.device)
-        scan_features = torch.zeros(scan.shape[0], 2).to(self.device)
-        scan_features[:, 0] = 1
-
-        map_coord = torch.div(pc_map, quantization.type_as(pc_map)).int().to(self.device)
-        map_features = torch.zeros(pc_map.shape[0], 2).to(self.device)
-        map_features[:, 1] = 1
-
-        map_sparse = ME.SparseTensor(
-            features=map_features, 
-            coordinates=map_coord,
-            )
-
-        scan_sparse = ME.SparseTensor(
-            features=scan_features, 
-            coordinates=scan_coords,
-            coordinate_manager = map_sparse.coordinate_manager
-            )
-
-        # Merge the two sparse tensors
-        union = ME.MinkowskiUnion()
-        output = union(scan_sparse, map_sparse)
-
-        # Only keep map points that lies in the same voxel as scan points
-        mask = (output.F[:,0] * output.F[:,1]) == 1
-
-        # Prune the merged tensors 
-        pruning = ME.MinkowskiPruning()
-        output = pruning(output, mask)
-
-        # Retrieve the original coordinates
-        submap_points = output.coordinates
-
-        # dequantize the points
-        submap_points = submap_points * self.ds
-        
-        elapsed_time = time.time() - start_time
-
-        return  submap_points.cpu(), elapsed_time, len(scan_sparse)
-
-
-    def to_rosmsg(self, data, header, frame_id=None):
-        cloud = PointCloud2()
-        cloud.header = header
-        if frame_id:
-            cloud.header.frame_id = frame_id
-
-        ''' Define the fields for the filtered point cloud '''
-        filtered_fields = [
-            PointField('x', 0, PointField.FLOAT32, 1),
-            PointField('y', 4, PointField.FLOAT32, 1),
-            PointField('z', 8, PointField.FLOAT32, 1),
-            PointField('intensity', 12, PointField.FLOAT32, 1)
-        ]
-        cloud.fields = filtered_fields
-        cloud.is_bigendian = False
-        cloud.point_step = 16
-        cloud.row_step = cloud.point_step * len(data)
-        cloud.is_bigendian = False
-        cloud.is_dense = True
-        cloud.width = len(data)
-        cloud.height = 1
-
-        ''' Create a single array to hold all the point data '''
-        point_data = np.array(data, dtype=np.float32)
-        cloud.data = point_data.tobytes()
-
-        return cloud
-
-
-    def add_timestamp(self, data, stamp):
-        ones = torch.ones(len(data), 1, dtype=data.dtype)
-        data = torch.hstack([data, ones * stamp])
-        return data
-
-
-    def infer(self, scan_points, submap_points):
-        assert scan_points.size(-1) == 3, f"Expected 3 columns, but the scan tensor has {scan_points.size(-1)} columns."
-        assert submap_points.size(-1) == 3, f"Expected 3 columns, but the submap tensor has {submap_points.size(-1)} columns."
-
-        ''' Bind time stamp to scan and submap points '''
-        scan_points = self.add_timestamp(scan_points, SCAN_TIMESTAMP)
-        submap_points = self.add_timestamp(submap_points, MAP_TIMESTAMP)
-
-        ''' Combine scans and map into the same tensor '''
-        scan_submap_data = torch.vstack([scan_points, submap_points])
-
-        batch = torch.zeros(len(scan_submap_data), 1, dtype=scan_submap_data.dtype)
-        tensor = torch.hstack([batch, scan_submap_data]) #.reshape(-1, 5)
+    def callback(self, odom_msg, scan_msg):
+        self.scan = util.to_numpy(scan_msg)
+        self.scan_msg_header = scan_msg.header
 
         start_time = time.time()
-        with torch.no_grad():
-            ''' Move the data tensor to the GPU manually when using the model directly without PyTorch Lightning '''       
-            scores = self.model.forward(tensor.cuda())  
-            scores = scores.cpu()
+        odom_msg_stamp = odom_msg.header.stamp.to_sec()
 
-        end_time = time.time()
-        elapsed_time = end_time - start_time
+        transformation_matrix = util.to_tr_matrix(odom_msg)
 
-        ''' Find the indecies where the score is less than the threshold, i.e. filter out dynamic points '''
-        scan_scores = scores[:len(scan_points)]
+        ''' Step 0: make sure the time stamp for odom and scan are the same!'''
+        df = odom_msg_stamp - self.scan_msg_header.stamp.to_sec()
+        if df != 0:
+            rospy.logwarn(f"Odom and scan time stamp is out of sync! time difference is {df} sec.")
 
-        return scan_scores, elapsed_time
-    
+        ''' Step 1: Transform the scan '''
+        scan_tr = util.transform_point_cloud(self.scan[:,:3], transformation_matrix)
 
-    def callback_odom(self, odom_msg):
-        self.odom_msg_stamp = odom_msg.header.stamp.to_sec()
+        ''' Step 2: convert scan points to torch tensor '''
+        scan_points = torch.tensor(scan_tr[:,:3], dtype=torch.float32).reshape(-1, 3).to(self.device)
+        scan_labels = torch.tensor(self.scan[:, 3], dtype=torch.float32).reshape(-1, 1).to(self.device)
 
-        # Extract the translation and orientation from the Odometry message
-        x = odom_msg.pose.pose.position.x
-        y = odom_msg.pose.pose.position.y
-        z = odom_msg.pose.pose.position.z
-
-        qx = odom_msg.pose.pose.orientation.x
-        qy = odom_msg.pose.pose.orientation.y
-        qz = odom_msg.pose.pose.orientation.z
-        qw = odom_msg.pose.pose.orientation.w
-
-        # Create the translation matrix
-        translation_matrix = np.array([[1, 0, 0, x],
-                                    [0, 1, 0, y],
-                                    [0, 0, 1, z],
-                                    [0, 0, 0, 1]])
-
-        # Create the rotation matrix
-        rotation_matrix = quaternion_matrix([qx, qy, qz, qw])
-
-        # Compute the transformation matrix
-        transformation_matrix = np.dot(translation_matrix, rotation_matrix)
-
-        self.transformation = transformation_matrix
-
-        # rospy.loginfo("Transformation Matrix:")
-        # rospy.loginfo(transformation_matrix)
-
-
-    def callback_points(self, pointcloud_msg):
+        ''' Step 3: Prune map points by keeping only the points that in the same voxel as of the scan points'''
         start_time = time.time()
-        pc = ros_numpy.numpify(pointcloud_msg)
-        height = pc.shape[0]
-        width = pc.shape[1] if len(pc.shape) > 1 else 1
+        scan_coord_feat = util.to_coords_features(scan_points,
+                                                    feature_type='scan',
+                                                    ds=self.ds,
+                                                    device=self.device)
+        submap_points, len_scan_coord = util.prune(self.pc_map_coord_feat, scan_coord_feat, self.ds) 
 
-        scan = np.zeros((height * width, 4), dtype=np.float32)
-        scan[:, 0] = np.resize(pc['x'], height * width)
-        scan[:, 1] = np.resize(pc['y'], height * width)
-        scan[:, 2] = np.resize(pc['z'], height * width)
-        scan[:, 3] = np.resize(pc['intensity'], height * width)
-        scan_len_before = len(scan)
+        prune_time = time.time() - start_time
 
-        scan_tr = self.transform_point_cloud(scan[:,:3], self.transformation)
-
-        ''' convert scan points to torch tensor '''
-        scan_points = torch.tensor(scan_tr[:,:3], dtype=torch.float32).reshape(-1, 3)
-        scan_labels = torch.tensor(scan[:, 3], dtype=torch.float32).reshape(-1, 1)
-
-        ''' Prune map points by keeping only the points that in the same voxel as of the scan points'''
-        
-
-        ''' Infere the stability labels '''
-        if self.threshold_dynamic < 1:
-            submap_points, prune_time, len_scan_coord = self.prune_map_points(scan_points, self.point_cloud_map)
-            predicted_scan_labels, infer_time = self.infer(scan_points, submap_points)
+        ''' Step 4: Infer the stability labels'''
+        if self.use_gt_labels:
+            rospy.logwarn("The model inference is disabled, and ground truth labels are being used.")
+            predicted_scan_labels, infer_time = scan_labels.view(-1), 0.001
         else:
-            predicted_scan_labels, infer_time, prune_time = scan_labels.view(-1), 0.001, 0.001
+            predicted_scan_labels, infer_time = util.infer(scan_points, submap_points, self.model)
 
-        ''' Calculate loss and r2 '''
+        ''' Step 5: Calculate loss and r2 '''
         loss = self.loss(predicted_scan_labels.view(-1), scan_labels.view(-1))
         r2 = self.r2score(predicted_scan_labels.view(-1), scan_labels.view(-1))
         self.loss_pub.publish(loss)
         self.r2_pub.publish(r2)
-        self.loss_buffer.append(loss)
-        self.r2_buffer.append(r2)
 
-        ''' Filter the scan points based on the threshold'''
-        scan[:, 3] = predicted_scan_labels.numpy()
-        scan = scan[(predicted_scan_labels <= self.threshold_dynamic)]
-        self.scan_pub.publish(self.to_rosmsg(scan, pointcloud_msg.header))
+        ''' Step 6: Filter the scan points based on the threshold'''
+        assert len(predicted_scan_labels) == len(self.scan), f"Predicted scans labels len ({len(predicted_scan_labels)}) does not equal scan len ({len(self.scan)})"
+        filtered_scan = self.scan[(predicted_scan_labels.cpu() <= self.epsilon)]
+        self.scan_pub.publish(util.to_rosmsg(filtered_scan, self.scan_msg_header))
 
         ''' Publish the transformed point cloud for debugging '''
-        # scan_tr = np.hstack([scan_tr[:,:3], predicted_scan_labels.numpy().reshape(-1, 1)])
-        # self.cloud_tr_pub.publish(self.to_rosmsg(scan_tr, pointcloud_msg.header, 'map'))
+        if self.pub_cloud_tr:
+            psl = predicted_scan_labels.cpu().data.numpy().reshape(-1,1)
+            scan_tr = np.hstack([scan_tr[:,:3], psl])
+            self.cloud_tr_pub.publish(util.to_rosmsg(scan_tr, self.scan_msg_header, self.odom_frame))
 
         ''' Publish the submap points for debugging '''
+        submap_points = submap_points.cpu()
         submap_labels = torch.ones(submap_points.shape[0], 1)
-        submap = torch.hstack([submap_points, submap_labels])
-        self.submap_pub.publish(self.to_rosmsg(submap.numpy(), pointcloud_msg.header, 'map'))
-
-        ''' Publish the submap points to the original coordinates '''
-        # submap = submap.numpy()
-        # submap[:,:3] = self.inverse_transform_point_cloud(submap[:,:3], self.transformation)
-        # self.submap_base_pub.publish(self.to_rosmsg(submap, pointcloud_msg.header, 'os_sensor'))
-
-        scan_len_after = len(scan)
-
-        '''Publish scan filter ration and map to scan ratio'''
-        scan_filter_ratio = (scan_len_after/scan_len_before) * 100.0
-        map_to_scan_ratio = (len(submap_labels) / len_scan_coord) * 100.0
-        self.scan_filter_ratio.publish(scan_filter_ratio)
-        self.map_to_scan_ratio.publish(map_to_scan_ratio)
-        self.scan_filter_buffer.append(scan_filter_ratio)
-        self.map_filter_buffer.append(map_to_scan_ratio)
-
+        if self.pub_submap:
+            submap = torch.hstack([submap_points, submap_labels])
+            self.submap_pub.publish(util.to_rosmsg(submap.numpy(), self.scan_msg_header, self.odom_frame))
 
         ''' Print log message '''
         end_time = time.time()
@@ -356,17 +156,15 @@ class SPS():
         hz = lambda t: 1 / t if t else 0
 
         log_message = (
-            f"T: {elapsed_time:.3f} sec [{hz(elapsed_time):.2f} Hz]. "
-            f"P: {prune_time:.3f} sec [{hz(prune_time):.2f} Hz]. "
-            f"I: {infer_time:.3f} sec [{hz(infer_time):.2f} Hz]. "
-            f"L: {loss:.3f}, r2: {r2:.3f}. "
-            f"N: {scan_len_before:d}, n: {scan_len_after:d}, "
-            f"S: {len_scan_coord:d}, "
-            f"M: {len(submap_labels):d}"
+            f"T: {elapsed_time:.3f} [{hz(elapsed_time):.2f} Hz] "
+            f"P: {prune_time:.3f} [{hz(prune_time):.2f} Hz] "
+            f"I: {infer_time:.3f} [{hz(infer_time):.2f} Hz] "
+            f"L: {loss:.3f} r2: {r2:.3f} "
+            f"N: {len(self.scan):d} n: {len(filtered_scan):d} "
+            f"S: {len_scan_coord:d} M: {len(submap_labels):d}"
         )
         rospy.loginfo(log_message)
-
-
+        
 
 if __name__ == '__main__':
     SPS_node = SPS()

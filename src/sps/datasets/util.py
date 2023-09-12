@@ -55,7 +55,7 @@ def load_point_cloud_map(cfg):
     rospy.loginfo('Loading point cloud map, pth: %s' % (map_pth))
     try:
         point_cloud_map = np.load(map_pth) if file_extension == '.npy' else np.loadtxt(map_pth, dtype=np.float32)
-        point_cloud_map = torch.tensor(point_cloud_map[:, :4]).to(torch.float32).reshape(-1, 4)
+        point_cloud_map = torch.tensor(point_cloud_map[:, :3]).to(torch.float32).reshape(-1, 3)
         rospy.loginfo('Point cloud map loaded successfully with %d points', len(point_cloud_map))
     except:
         rospy.logerr('Failed to load point cloud map from %s', map_pth)
