@@ -1,15 +1,17 @@
 <launch>
 
-    <arg name="filter" default="true" />
+    <arg name="filter"            default="true" />
     <arg name="raw_cloud"         default="/os_cloud_node/points" />
     <arg name="filtered_cloud"    default="/cloud_filtered" />
+    <arg name="odom_frame"        default="odom" />
     <arg name="predicted_pose"    default="/odometry_node/odometry_estimate" />
 
     <node pkg="mos4d" type="mos4d_node.py" name="moving_objects_segmentation" output="screen">
-        <param name="filter" type="bool" value="$(arg filter)"/>
+        <param name="filter"            type="bool"   value="$(arg filter)"/>
         <param name="raw_cloud"         type="string" value="$(arg raw_cloud)"/>
         <param name="filtered_cloud"    type="string" value="$(arg filtered_cloud)"/>
         <param name="predicted_pose"    type="string" value="$(arg predicted_pose)"/>
+        <param name="odom_frame"        type="string" value="$(arg odom_frame)"/>
     </node>
 
 </launch>

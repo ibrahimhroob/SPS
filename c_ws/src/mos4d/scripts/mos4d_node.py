@@ -26,7 +26,8 @@ class MOS4D():
 
         weights_pth = rospy.get_param('~model_weights_pth', "/sps/c_ws/src/mos4d/checkpoints/10_scans.ckpt")
 
-        self.filter = rospy.get_param('~filter', True)
+        self.odom_frame = rospy.get_param('~odom_frame', "odom")
+        self.filter     = rospy.get_param('~filter', True)
 
         # Use regular expressions to find the integer
         self.buffer_size = re.search(r'(\d+)_scans\.ckpt', weights_pth)
@@ -47,7 +48,7 @@ class MOS4D():
 
         ''' Initialize the publisher '''
         self.scan_pub = rospy.Publisher(filtered_cloud_topic, PointCloud2, queue_size=10)
-        self.mos4d_pub = rospy.Publisher('/debug/mos4d', PointCloud2, queue_size=10)
+        self.mos4d_pub = rospy.Publisher('/debug/raw_cloud_tr', PointCloud2, queue_size=10)
 
         self.lidar_buffer = []
 
@@ -125,9 +126,9 @@ class MOS4D():
         scan_labels = predicted_logits[-scan_len:]
         self.scan = np.hstack((self.scan[:,:3], scan_labels.reshape(-1, 1)))
         filtered_scan = self.scan[(scan_labels == 0)] if self.filter else self.scan
-        self.scan_pub.publish(util.to_rosmsg(filtered_scan, self.scan_msg_header, 'odom'))
+        self.scan_pub.publish(util.to_rosmsg(filtered_scan, self.scan_msg_header))
 
-        self.mos4d_pub.publish(util.to_rosmsg(np.hstack((scan_tr[:,:3], scan_labels.reshape(-1, 1))), self.scan_msg_header, 'odom'))
+        self.mos4d_pub.publish(util.to_rosmsg(np.hstack((scan_tr[:,:3], scan_labels.reshape(-1, 1))), self.scan_msg_header, self.odom_frame))
 
 
 

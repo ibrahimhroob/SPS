@@ -135,6 +135,7 @@ class SPS():
         ''' Step 6: Filter the scan points based on the threshold'''
         assert len(predicted_scan_labels) == len(self.scan), f"Predicted scans labels len ({len(predicted_scan_labels)}) does not equal scan len ({len(self.scan)})"
         filtered_scan = self.scan[(predicted_scan_labels.cpu() <= self.epsilon)]
+        # filtered_scan = self.scan[(predicted_scan_labels.cpu() <= self.epsilon) and (predicted_scan_labels.cpu() >= 0.05)]
         self.scan_pub.publish(util.to_rosmsg(filtered_scan, self.scan_msg_header))
 
         ''' Publish the transformed point cloud for debugging '''

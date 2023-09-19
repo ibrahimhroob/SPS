@@ -15,6 +15,7 @@ class MapMos():
         rospy.init_node('mapmos_node')
 
         # Retrieve parameters from ROS parameter server
+        self.odom_frame = rospy.get_param('~odom_frame', "odom")
         raw_cloud_topic = rospy.get_param('~raw_cloud', "/os_cloud_node/points")
         map_cloud_topic = rospy.get_param('~mos_map', "/odometry_node/mos_map")
         predicted_pose_topic = rospy.get_param('~predicted_pose', "/odometry_node/odometry_estimate")
@@ -32,7 +33,7 @@ class MapMos():
 
         # Initialize the publisher
         self.scan_pub = rospy.Publisher(filtered_cloud_topic, PointCloud2, queue_size=10)
-        self.mapmos_pub = rospy.Publisher('/debug/mapmos', PointCloud2, queue_size=10)
+        self.mapmos_pub = rospy.Publisher('/debug/raw_cloud_tr', PointCloud2, queue_size=10)
 
         # Load the model
         self.model = self.load_model(weights_pth)
@@ -94,8 +95,8 @@ class MapMos():
         scan = np.hstack((scan[:,:3], scan_lablels.reshape(-1,1)))
         filtered_scan = scan[(scan_lablels == 0)]
 
-        self.scan_pub.publish(util.to_rosmsg(filtered_scan, scan_msg_header, 'odom'))
-        self.mapmos_pub.publish(util.to_rosmsg(np.hstack((scan_tr[:,:3], scan_lablels.reshape(-1,1))), scan_msg_header, 'odom'))
+        self.scan_pub.publish(util.to_rosmsg(filtered_scan, scan_msg_header))
+        self.mapmos_pub.publish(util.to_rosmsg(np.hstack((scan_tr[:,:3], scan_lablels.reshape(-1,1))), scan_msg_header, self.odom_frame))
 
         end_time = time.time()
         elapsed_time = end_time - start_time
