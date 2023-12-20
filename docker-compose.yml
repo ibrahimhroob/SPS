@@ -1,15 +1,22 @@
-version: "2.3"
+version: "3"
 services:
   project:
-    image: mos4d
+    image: sps
     build:
       context: .
       dockerfile: ./Dockerfile
       args:
         USER_ID: ${USER_ID:-1000}
         GROUP_ID: ${GROUP_ID:-1000}
-    runtime: nvidia
     ipc: host
+    network_mode: host
     volumes:
-      - ${PWD}/:/mos4d
-      - ${DATA}:/mos4d/data
+      - ${PWD}/:/sps
+      - ${DATA}:/sps/data
+    stdin_open: true
+    tty: true
+    runtime: nvidia
+    environment:
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - ROS_MASTER_URI=$ROS_MASTER_URI
+    working_dir: /sps

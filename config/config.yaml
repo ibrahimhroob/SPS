@@ -1,31 +1,32 @@
 EXPERIMENT:
-  ID: LTOS # Long-Term Object Segmentation OR 5DMOS
+  ID: SPS_ME_BinaryCrossEntroby # Long-Term Object Segmentation OR 5DMOS
 
 ##Data
 DATA:
-  MAP_PTH: "/home/ibrahim/neptune/4DMOS/Dataset/Bacchus/maps/april_20_ABEF.asc"
-  SCANS_DIR: "/home/ibrahim/neptune/4DMOS/Dataset/Bacchus/sequence/20220601/scans"
-  POSES_DIR: "/home/ibrahim/neptune/4DMOS/Dataset/Bacchus/sequence/20220601/poses"
   SHUFFLE: True
-  SEED: 42
-  RADIUS: 50
-  NUM_WORKER: 4
-  DELTA_T_DATA: 0.1 # Time between scans in the dataset (0.1s for KITTI)
-  VOXEL_SIZE: 0.1 # Used for discretization in x,y,z when creating a sparse tensor 
- 
+  NUM_WORKER: 8
+  ME_PRUNE: False
+  SPLIT:
+    TRAIN:
+      - '20220420'
+      - '20220601'
+    VAL:
+      - '20220608'
+    TEST:
+      - '20220629'
+      - '20220714'
+
 ##Training
 TRAIN:
-  MAX_EPOCH: 60
-  LR: 0.0001
+  MAP: base_map.asc.npy
+  MAX_EPOCH: 80
+  LR: 0.00007
   LR_EPOCH: 1
   LR_DECAY: 0.99
   WEIGHT_DECAY: 0.0001
-  BATCH_SIZE: 2
-  ACC_BATCHES: 1
+  BATCH_SIZE: 4
   AUGMENTATION: True
 
 ##Network
 MODEL:
-  DELTA_T_PREDICTION: 0.1 # Temporal resolution of scans
-  N_PAST_STEPS: 2
-
+  VOXEL_SIZE: 0.1 # Used for discretization in x,y,z when creating a sparse tensor 

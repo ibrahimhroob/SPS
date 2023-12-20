@@ -1,0 +1,9 @@
+<launch>
+    <arg name="cloud_topic" default="/os_cloud_node/points" />
+    <arg name="rate" default="1" />
+
+    <node pkg="sps_filter" type="pub_scans.py" name="Labelled_scans_publisher" output="screen">
+        <param name="cloud_topic" type="string" value="$(arg cloud_topic)"/>
+        <param name="rate" type="double" value="$(arg rate)"/>
+    </node>
+</launch>
