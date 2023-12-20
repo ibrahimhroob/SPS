@@ -21,6 +21,8 @@ from sps.datasets.augmentation import (
 import MinkowskiEngine as ME
 import torch.multiprocessing as mp
 
+# from sps.datasets import util 
+
 #####################################################################
 SCAN_TIMESTAMP = 1
 MAP__TIMESTAMP = 0
@@ -161,7 +163,7 @@ class BacchusModule(LightningDataModule):
 class BacchusDataset(Dataset):
     """Dataset class for point cloud prediction"""
 
-    def __init__(self, cfg, scans, poses, map, map_transform, split = None):
+    def __init__(self, cfg, scans, poses, pc_map, map_transform, split = None):
         self.cfg = cfg
         self.scans = scans
         self.poses = poses
@@ -174,7 +176,7 @@ class BacchusDataset(Dataset):
 
         self.dataset_size = len(scans)
         
-        self.map = map
+        self.map = pc_map
 
         if self.cfg['DATA']['ME_PRUNE']:
             self.map = torch.tensor(self.map[:, :4]).to(torch.float32).reshape(-1, 4)

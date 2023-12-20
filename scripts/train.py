@@ -10,7 +10,7 @@ from pytorch_lightning import Trainer
 from pytorch_lightning import loggers as pl_loggers
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 
-import sps.datasets.datasets as datasets
+import sps.datasets.datasets2 as datasets
 import sps.models.models as models
 
 import torch.multiprocessing as mp
@@ -29,7 +29,7 @@ LOG_DIR = "./tb_logs"
     default=DEFAULT_CONFIG_PATH,
 )
 def main(config):
-    mp.set_start_method('spawn')  # Set the start method to 'spawn' before creating any processes
+    # mp.set_start_method('spawn')  # Set the start method to 'spawn' before creating any processes
     cfg = yaml.safe_load(open(config))
 
     # Load data and model

@@ -118,19 +118,16 @@ class MOS4D():
         end_time = time.time()
         elapsed_time = end_time - start_time
 
-        hz = lambda t: 1 / t if t else 0
-        rospy.loginfo(f"T: {elapsed_time:.3f} [{hz(elapsed_time):.2f} Hz]")
-
         predicted_logits = (predicted_logits > 0).int().cpu().data.numpy()
         scan_len = len(self.scan)
         scan_labels = predicted_logits[-scan_len:]
         self.scan = np.hstack((self.scan[:,:3], scan_labels.reshape(-1, 1)))
         filtered_scan = self.scan[(scan_labels == 0)] if self.filter else self.scan
         self.scan_pub.publish(util.to_rosmsg(filtered_scan, self.scan_msg_header))
-
         self.mos4d_pub.publish(util.to_rosmsg(np.hstack((scan_tr[:,:3], scan_labels.reshape(-1, 1))), self.scan_msg_header, self.odom_frame))
 
-
+        hz = lambda t: 1 / t if t else 0
+        rospy.loginfo(f"T: {elapsed_time:.3f} [{hz(elapsed_time):.2f} Hz], N: {len(self.scan):d}, n: {len(filtered_scan):d}")
 
 if __name__ == "__main__":
     MOS4D()

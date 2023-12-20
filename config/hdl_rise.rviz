@@ -4,6 +4,8 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
+        - /GlobalMap1
+        - /AlignedFrame1
         - /Odometry2/Shape1
       Splitter Ratio: 0.5
     Tree Height: 703
@@ -67,7 +69,7 @@ Visualization Manager:
         {}
       Update Interval: 0
       Value: false
-    - Alpha: 0.4000000059604645
+    - Alpha: 0.30000001192092896
       Autocompute Intensity Bounds: false
       Autocompute Value Bounds:
         Max Value: 10
@@ -137,7 +139,7 @@ Visualization Manager:
       Color: 0; 0; 0
       Color Transformer: Intensity
       Decay Time: 0
-      Enabled: false
+      Enabled: true
       Invert Rainbow: false
       Max Color: 239; 41; 41
       Min Color: 46; 52; 54
@@ -146,13 +148,13 @@ Visualization Manager:
       Queue Size: 10
       Selectable: true
       Size (Pixels): 3
-      Size (m): 0.10000000149011612
+      Size (m): 0.14000000059604645
       Style: Spheres
       Topic: /odometry_node/frame_registered
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: false
-      Value: false
+      Value: true
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
@@ -165,7 +167,7 @@ Visualization Manager:
       Color: 0; 0; 0
       Color Transformer: Intensity
       Decay Time: 0
-      Enabled: true
+      Enabled: false
       Invert Rainbow: false
       Max Color: 239; 41; 41
       Min Color: 0; 0; 0
@@ -173,14 +175,14 @@ Visualization Manager:
       Position Transformer: XYZ
       Queue Size: 10
       Selectable: true
-      Size (Pixels): 5
-      Size (m): 0.10000000149011612
-      Style: Spheres
+      Size (Pixels): 3
+      Size (m): 0.14000000059604645
+      Style: Points
       Topic: /debug/raw_cloud_tr
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: false
-      Value: true
+      Value: false
     - Angle Tolerance: 0.10000000149011612
       Class: rviz/Odometry
       Covariance:
@@ -198,7 +200,7 @@ Visualization Manager:
           Scale: 1
           Value: true
         Value: true
-      Enabled: true
+      Enabled: false
       Keep: 20000
       Name: Odometry
       Position Tolerance: 0.10000000149011612
@@ -214,7 +216,7 @@ Visualization Manager:
         Value: Arrow
       Topic: /odometry_node/odometry
       Unreliable: false
-      Value: true
+      Value: false
     - Angle Tolerance: 0.10000000149011612
       Class: rviz/Odometry
       Covariance:
@@ -306,25 +308,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/XYOrbit
-      Distance: 12.021406173706055
+      Distance: 13.537115097045898
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 14.697144508361816
-        Y: -0.1941237449645996
+        X: 8.294342041015625
+        Y: 1.0399870872497559
         Z: 1.620005969016347e-5
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.64479660987854
+      Pitch: 0.42479729652404785
       Target Frame: os_sensor
       Value: XYOrbit (rviz)
-      Yaw: 5.833582878112793
+      Yaw: 0.4603935182094574
     Saved: ~
 Window Geometry:
   Displays:

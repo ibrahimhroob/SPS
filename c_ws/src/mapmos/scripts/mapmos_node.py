@@ -17,30 +17,28 @@ class MapMos():
         # Retrieve parameters from ROS parameter server
         self.odom_frame = rospy.get_param('~odom_frame', "odom")
         raw_cloud_topic = rospy.get_param('~raw_cloud', "/os_cloud_node/points")
-        map_cloud_topic = rospy.get_param('~mos_map', "/odometry_node/mos_map")
         predicted_pose_topic = rospy.get_param('~predicted_pose', "/odometry_node/odometry_estimate")
         filtered_cloud_topic = rospy.get_param('~filtered_cloud', "/cloud_filtered")
         weights_pth = rospy.get_param('~model_weights_pth', "/sps/c_ws/src/mapmos/checkpoints/mapmos.ckpt")
 
         # Subscribe to ROS topics
-        # rospy.Subscriber(map_cloud_topic, PointCloud2, self.mapmos_callback)
         odom_sub = message_filters.Subscriber(predicted_pose_topic, Odometry)
         scan_sub = message_filters.Subscriber(raw_cloud_topic, PointCloud2)
-        map_sub = message_filters.Subscriber(map_cloud_topic, PointCloud2)
 
-        ts = message_filters.TimeSynchronizer([odom_sub, scan_sub, map_sub], 10)
+        ts = message_filters.TimeSynchronizer([odom_sub, scan_sub], 10)
         ts.registerCallback(self.callback)
 
         # Initialize the publisher
         self.scan_pub = rospy.Publisher(filtered_cloud_topic, PointCloud2, queue_size=10)
         self.mapmos_pub = rospy.Publisher('/debug/raw_cloud_tr', PointCloud2, queue_size=10)
+        self.mapmos_map_pub = rospy.Publisher('/debug/mos_map', PointCloud2, queue_size=10)
 
         # Load the model
         self.model = self.load_model(weights_pth)
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        self.pc_map = None
+        self.pc_map = np.load('/sps/data/maps/base_map.asc.npy')
 
         rospy.spin()
 
@@ -62,15 +60,24 @@ class MapMos():
         return model
 
 
-    def callback(self, odom_msg, scan_msg, map_msg):
+    def select_points_within_radius(self, coordinates, center, radius=30):
+        # Calculate the Euclidean distance from each point to the center
+        distances = np.sqrt(np.sum((coordinates - center) ** 2, axis=1))
+        # Select the indexes of points within the radius
+        indexes = np.where(distances <= radius)[0]
+        return indexes
+
+    def callback(self, odom_msg, scan_msg):
         start_time = time.time()
 
         scan = util.to_numpy(scan_msg)
-        pc_map = util.to_numpy(map_msg)
         scan_msg_header = scan_msg.header
 
         odom_msg_stamp = odom_msg.header.stamp.to_sec()
         transformation_matrix = util.to_tr_matrix(odom_msg)
+
+        origin = transformation_matrix[:3, 3]
+        pc_map = self.pc_map[self.select_points_within_radius(self.pc_map[:,:3], origin)] 
 
         ''' Make sure the time stamp for odom and scan are the same!'''
         df = odom_msg_stamp - scan_msg_header.stamp.to_sec()
@@ -97,6 +104,8 @@ class MapMos():
 
         self.scan_pub.publish(util.to_rosmsg(filtered_scan, scan_msg_header))
         self.mapmos_pub.publish(util.to_rosmsg(np.hstack((scan_tr[:,:3], scan_lablels.reshape(-1,1))), scan_msg_header, self.odom_frame))
+        self.mapmos_map_pub.publish(util.to_rosmsg(pc_map, scan_msg_header, self.odom_frame))
+
 
         end_time = time.time()
         elapsed_time = end_time - start_time

@@ -27,9 +27,9 @@ class PubScans:
         root_dir = str(os.environ.get("DATA"))
 
         ''' Retrieve parameters from ROS parameter server '''
-        cloud_topic = rospy.get_param('~raw_cloud', "/ndt/predicted/aligned_points")
-        sequence    = rospy.get_param('~seq', "20220629")
-        pub_rate    = rospy.get_param('~rate', 10)
+        cloud_topic = rospy.get_param('~raw_cloud', "/os_cloud_node/points")
+        sequence    = rospy.get_param('~seq', "115")
+        pub_rate    = rospy.get_param('~rate', 2)
 
         scans_pth   = os.path.join(root_dir, 'sequence', sequence, 'scans') 
         poses_pth   = os.path.join(root_dir, 'sequence', sequence, 'poses')  

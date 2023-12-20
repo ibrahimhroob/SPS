@@ -4,7 +4,7 @@ import torch
 import click
 from pytorch_lightning import Trainer
 
-import sps.datasets.datasets as datasets
+import sps.datasets.datasets_nclt as datasets
 import sps.models.models as models
 
 import torch.multiprocessing as mp
@@ -16,7 +16,7 @@ import torch.multiprocessing as mp
     "-w",
     type=str,
     help="path to checkpoint file (.ckpt) to do inference.",
-    default='/sps/tb_logs/SPS_ME_Union/version_39/checkpoints/last.ckpt',
+    default='/sps/best_models/420_601_608.chpt',
     # required=True,
 )
 @click.option(
@@ -24,11 +24,10 @@ import torch.multiprocessing as mp
     "-seq",
     type=str,
     help="Run inference on specific sequences. Otherwise, test split from config is used.",
-    default= ['20220420'], #['20220420', '20220601', '20220608', '20220629', '20220714'],
+    default= ['202'], #['20220420', '20220601', '20220608', '20220629', '20220714'],
     multiple=True,
 )
 def main(weights, sequence):
-    mp.set_start_method('spawn')  # Set the start method to 'spawn' before creating any processes
 
     cfg = torch.load(weights)["hyper_parameters"]
 
@@ -40,7 +39,7 @@ def main(weights, sequence):
     # Load data and model
     cfg["DATA"]["SPLIT"]["TRAIN"] = cfg["DATA"]["SPLIT"]["TEST"]
     cfg["DATA"]["SPLIT"]["VAL"] = cfg["DATA"]["SPLIT"]["TEST"]
-    data = datasets.BacchusModule(cfg)
+    data = datasets.TestModule(cfg)
     data.setup()
 
     print(len(data.test_scans))
@@ -56,7 +55,7 @@ def main(weights, sequence):
     trainer = Trainer(accelerator="gpu", devices=1, logger=None)
 
     # Infer!
-    trainer.predict(model, data.val_dataloader())
+    trainer.predict(model, data.test_dataloader())
 
 
 if __name__ == "__main__":
