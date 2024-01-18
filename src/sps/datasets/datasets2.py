@@ -4,6 +4,7 @@ import os
 import yaml
 import time
 import torch
+import random
 import numpy as np
 from tqdm import tqdm
 from torch.utils.data import Dataset, DataLoader
@@ -34,6 +35,23 @@ class BacchusModule(LightningDataModule):
         val_seqs = self.cfg['DATA']['SPLIT']['VAL']
         val_scans, val_poses, val_map_tr = self.get_scans_poses(val_seqs)
         self.val_scans = self.cash_scans(val_scans, val_poses, val_map_tr)
+
+        #exp merge test and val scan     
+        # Combine the two lists
+        all_scans = self.train_scans + self.val_scans
+
+        # Shuffle the combined list
+        random.shuffle(all_scans)
+
+        # Define the percentage of data to be used for validation
+        validation_percentage = 0.2  # You can adjust this as needed
+
+        # Calculate the index to split the data
+        split_index = int(len(all_scans) * (1 - validation_percentage))
+
+        # Split the data into training and validation sets
+        self.train_scans = all_scans[:split_index]
+        self.val_scans = all_scans[split_index:]
 
         map_str = self.cfg["TRAIN"]["MAP"]
 
@@ -164,6 +182,7 @@ class BacchusDataset(Dataset):
             self.map = torch.tensor(self.map[:, :4]).to(torch.float32).reshape(-1, 4)
 
         self.augment = self.cfg["TRAIN"]["AUGMENTATION"] and split == "train"
+        self.discrepancy = self.cfg["TRAIN"]["DISCREPANCY"] 
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -178,34 +197,29 @@ class BacchusDataset(Dataset):
 
         scan_points = torch.tensor(scan_data[:, :3]).to(torch.float32).reshape(-1, 3)
         scan_labels = torch.tensor(scan_data[:, 3]).to(torch.float32).reshape(-1, 1)
-        
-        kd_tree_scan = cKDTree(scan_data[:,:3])
-        submap_idx = self.select_closest_points(kd_tree_scan, self.kd_tree_tar)
-        submap_points = torch.tensor(self.map[submap_idx, :3]).to(torch.float32).reshape(-1, 3)
-
-        kd_tree_submap = cKDTree(self.map[submap_idx,:3])
-        stable_points_idx = self.select_closest_points(kd_tree_submap, kd_tree_scan)
-        stable_points_idx = np.unique(stable_points_idx)
-        scan_binary_labels = torch.ones(len(scan_data))
-        scan_binary_labels[stable_points_idx] = 0
-
-        scan_binary_labels = scan_binary_labels.to(torch.float32).reshape(-1, 1)
-        
-
-        # Submap points labels are not important, so we just create a tensor of ones
-        submap_labels = torch.ones(submap_points.shape[0], 1)
-
-        # Bind time stamp to scan and submap points
-        scan_points = self.add_timestamp(scan_points, SCAN_TIMESTAMP)
-        submap_points = self.add_timestamp(submap_points, MAP__TIMESTAMP)
-
+        # Bind time stamp to scan points
+        scan_points = self.add_timestamp(scan_points, util.SCAN_TIMESTAMP)
         # Bind points label in the same tensor 
-        # scan_points = torch.hstack([scan_points, scan_labels])
-        scan_points = torch.hstack([scan_points, scan_binary_labels])
-        submap_points = torch.hstack([submap_points, submap_labels])
+        scan_points = torch.hstack([scan_points, scan_labels])
 
-        # Bine scans and map in the same tensor 
-        scan_submap_data = torch.vstack([scan_points, submap_points])
+        scan_submap_data = scan_points
+
+        if self.discrepancy:
+            kd_tree_scan = cKDTree(scan_data[:,:3])
+            submap_idx = self.select_closest_points(kd_tree_scan, self.kd_tree_tar)
+            submap_points = torch.tensor(self.map[submap_idx, :3]).to(torch.float32).reshape(-1, 3)
+
+            # Submap points labels are not important, so we just create a tensor of ones
+            submap_labels = torch.ones(submap_points.shape[0], 1)
+
+            # Bind time stamp to submap points
+            submap_points = self.add_timestamp(submap_points, util.MAP_TIMESTAMP)
+
+            # Bind points label in the same tensor 
+            submap_points = torch.hstack([submap_points, submap_labels])
+
+            # Bine scans and map in the same tensor 
+            scan_submap_data = torch.vstack([scan_points, submap_points])
 
         # Augment the points 
         if self.augment:

@@ -20,13 +20,13 @@ class MOS4D():
         rospy.init_node('mos4d_node')
 
         ''' Retrieve parameters from ROS parameter server '''
-        raw_cloud_topic      = rospy.get_param('~raw_cloud', "/os_cloud_node/points")
+        raw_cloud_topic      = rospy.get_param('~raw_cloud', '/os1_points_cropped') #"/os_cloud_node/points")
         filtered_cloud_topic = rospy.get_param('~filtered_cloud', "/cloud_filtered")
         predicted_pose_topic = rospy.get_param('~predicted_pose', "/odometry_node/odometry_estimate")
 
         weights_pth = rospy.get_param('~model_weights_pth', "/sps/c_ws/src/mos4d/checkpoints/10_scans.ckpt")
 
-        self.odom_frame = rospy.get_param('~odom_frame', "odom")
+        self.odom_frame = rospy.get_param('~odom_frame', "map")
         self.filter     = rospy.get_param('~filter', True)
 
         # Use regular expressions to find the integer
@@ -80,6 +80,7 @@ class MOS4D():
     def callback(self, scan_msg, odom_msg):
         self.scan = util.to_numpy(scan_msg)
         self.scan_msg_header = scan_msg.header
+        gt = np.where(self.scan[:,3] < 0.84, 0, 1)
 
         start_time = time.time()
         odom_msg_stamp = odom_msg.header.stamp.to_sec()
@@ -125,6 +126,26 @@ class MOS4D():
         filtered_scan = self.scan[(scan_labels == 0)] if self.filter else self.scan
         self.scan_pub.publish(util.to_rosmsg(filtered_scan, self.scan_msg_header))
         self.mos4d_pub.publish(util.to_rosmsg(np.hstack((scan_tr[:,:3], scan_labels.reshape(-1, 1))), self.scan_msg_header, self.odom_frame))
+
+        ### -> mIoU start
+        pred = scan_labels
+
+        # precision, recall, f1, accuracy, uIoU = util.calculate_metrics(gt, pred)
+
+        # bm = util.binary_metrics(gt=gt, pred=pred)      
+        # log_message = (
+        #     f"mIoU: {bm['mIoU']:.3f} "
+        #     f"staticIoU: {bm['staticIoU']:.3f} "
+        #     f"dynamicIoU: {bm['dynamicIoU']:.3f} "
+        #     f"avg_class_acc: {bm['avg_class_acc']:.3f} "
+        #     f"point_acc: {bm['point_acc']:.3f} "
+        #     f"precision: {precision:.3f} "
+        #     f"recall: {recall:.3f} "
+        #     f"f1: {f1:.3f} "
+        #     f"accuracy: {accuracy:.3f} "
+        # )
+        # rospy.loginfo(log_message)
+        ### <- mIoU ends
 
         hz = lambda t: 1 / t if t else 0
         rospy.loginfo(f"T: {elapsed_time:.3f} [{hz(elapsed_time):.2f} Hz], N: {len(self.scan):d}, n: {len(filtered_scan):d}")

@@ -4,10 +4,9 @@ import torch
 import click
 from pytorch_lightning import Trainer
 
-import sps.datasets.datasets_nclt as datasets
+# import sps.datasets.datasets_nclt as datasets
+import sps.datasets.datasets2test as datasets
 import sps.models.models as models
-
-import torch.multiprocessing as mp
 
 @click.command()
 ### Add your options here

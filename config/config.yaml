@@ -1,5 +1,5 @@
 EXPERIMENT:
-  ID: SPS_ME_BinaryCrossEntroby # Long-Term Object Segmentation OR 5DMOS
+  ID: SPS_lts # Long-Term Object Segmentation OR 5DMOS
 
 ##Data
 DATA:
@@ -26,6 +26,7 @@ TRAIN:
   WEIGHT_DECAY: 0.0001
   BATCH_SIZE: 4
   AUGMENTATION: True
+  DISCREPANCY: False
 
 ##Network
 MODEL:

@@ -155,21 +155,22 @@ def to_numpy(pointcloud_msg):
 
 def add_timestamp(data, stamp, device):
     ones = torch.ones(len(data), 1, dtype=data.dtype).to(device)
+    # ones = torch.ones(len(data), 1, dtype=torch.float32).to(device)
     data = torch.hstack([data, ones * stamp])
     return data
 
 
-def infer(scan_points, submap_points, model, device="cuda"):
+def infer(scan_points, submap_points, model, device="cuda",  discrepancy=True):
     start_time = time.time()
     assert scan_points.size(-1) == 3, f"Expected 3 columns, but the scan tensor has {scan_points.size(-1)} columns."
-    assert submap_points.size(-1) == 3, f"Expected 3 columns, but the submap tensor has {submap_points.size(-1)} columns."
-
-    ''' Bind time stamp to scan and submap points '''
     scan_points = add_timestamp(scan_points, SCAN_TIMESTAMP, device)
-    submap_points = add_timestamp(submap_points, MAP_TIMESTAMP, device)
+    scan_submap_data = scan_points
 
-    ''' Combine scans and map into the same tensor '''
-    scan_submap_data = torch.vstack([scan_points, submap_points])
+    if discrepancy:
+        assert submap_points.size(-1) == 3, f"Expected 3 columns, but the submap tensor has {submap_points.size(-1)} columns."
+        submap_points = add_timestamp(submap_points, MAP_TIMESTAMP, device)
+        ''' Combine scans and map into the same tensor '''
+        scan_submap_data = torch.vstack([scan_points, submap_points])
 
     batch = torch.zeros(len(scan_submap_data), 1, dtype=scan_submap_data.dtype).to(device)
     tensor = torch.hstack([batch, scan_submap_data]).reshape(-1, 5)
@@ -231,3 +232,71 @@ def to_tr_matrix(odom_msg):
     transformation_matrix = np.dot(translation_matrix, rotation_matrix)
 
     return transformation_matrix
+
+def binary_metrics(gt,pred):
+    NUM_CLASSES = 2
+    results = {}
+
+    classes = ['static', 'dynamic']
+    class2label = {cls: i for i, cls in enumerate(classes)}
+    seg_classes = class2label
+    seg_label_to_cat = {}
+    for i, cat in enumerate(seg_classes.keys()):
+        seg_label_to_cat[i] = cat
+
+    total_seen_class = [0 for _ in range(NUM_CLASSES)]
+    total_correct_class = [0 for _ in range(NUM_CLASSES)]
+    total_iou_deno_class = [0 for _ in range(NUM_CLASSES)]
+
+    total_seen_class_tmp = [0 for _ in range(NUM_CLASSES)]
+    total_correct_class_tmp = [0 for _ in range(NUM_CLASSES)]
+    total_iou_deno_class_tmp = [0 for _ in range(NUM_CLASSES)]
+
+    whole_scene_label = gt
+    pred_label = pred
+
+    for l in range(NUM_CLASSES):
+        total_seen_class_tmp[l] += np.sum((whole_scene_label == l))
+        total_correct_class_tmp[l] += np.sum((pred_label == l) & (whole_scene_label == l))
+        total_iou_deno_class_tmp[l] += np.sum(((pred_label == l) | (whole_scene_label == l)))
+        total_seen_class[l] += total_seen_class_tmp[l]
+        total_correct_class[l] += total_correct_class_tmp[l]
+        total_iou_deno_class[l] += total_iou_deno_class_tmp[l]
+
+    iou_map = np.array(total_correct_class_tmp) / (np.array(total_iou_deno_class_tmp, dtype=np.float) + 1e-6)
+    arr = np.array(total_seen_class_tmp)
+    tmp_iou = np.mean(iou_map[arr != 0])
+    results['mIoU'] = tmp_iou
+    results['staticIoU'] = iou_map[0]
+    results['dynamicIoU'] = iou_map[1]
+
+    IoU = np.array(total_correct_class) / (np.array(total_iou_deno_class, dtype=np.float) + 1e-6)
+    iou_per_class_str = '------- IoU --------\n'
+    for l in range(NUM_CLASSES):
+        iou_per_class_str += 'class %s, IoU: %.3f \n' % (
+            seg_label_to_cat[l] + ' ' * (3 - len(seg_label_to_cat[l])),
+            total_correct_class[l] / float(total_iou_deno_class[l]))
+
+    avg_class_acc = np.mean(np.array(total_correct_class) / (np.array(total_seen_class, dtype=np.float) + 1e-6))
+    point_acc = np.sum(total_correct_class) / float(np.sum(total_seen_class) + 1e-6)
+    results['avg_class_acc'] = avg_class_acc
+    results['point_acc'] = point_acc
+
+    return results
+
+def calculate_metrics(true_labels, predicted_labels):
+    # Calculate True Positives, False Positives, False Negatives
+    true_positives = np.sum(np.logical_and(true_labels == 1, predicted_labels == 1))
+    true_negatives = np.sum(np.logical_and(true_labels == 0, predicted_labels == 0))
+    false_positives = np.sum(np.logical_and(true_labels == 0, predicted_labels == 1))
+    false_negatives = np.sum(np.logical_and(true_labels == 1, predicted_labels == 0))
+
+    # Calculate Precision, Recall, and F1
+    precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) != 0 else 0
+    recall = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) != 0 else 0
+    f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) != 0 else 0
+    accuracy = (true_positives + true_negatives) / (true_positives + true_negatives + false_positives + false_negatives)
+    dIoU = true_positives / (true_positives + false_negatives + false_positives)
+
+    return precision, recall, f1, accuracy, dIoU
+    

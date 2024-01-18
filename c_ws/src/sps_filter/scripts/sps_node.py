@@ -22,7 +22,7 @@ class SPS():
         rospy.init_node('Stable_Points_Segmentation_node')
 
         ''' Retrieve parameters from ROS parameter server '''
-        raw_cloud_topic      = rospy.get_param('~raw_cloud', "/points_raw") #"/os_cloud_node/points")
+        raw_cloud_topic      = rospy.get_param('~raw_cloud', '/os1_points_cropped') #"/os_cloud_node/points")
         filtered_cloud_topic = rospy.get_param('~filtered_cloud', "/cloud_filtered")
         predicted_pose_topic = rospy.get_param('~predicted_pose', "/odometry_node/odometry_estimate")
 
@@ -150,20 +150,37 @@ class SPS():
 
         predicted_scan_labels = predicted_scan_labels.cpu()
 
-        predicted_scan_labels = torch.where(predicted_scan_labels < 0.84, torch.tensor(0), torch.tensor(1))
+        ### -> mIoU start
+        pred = np.where(predicted_scan_labels.view(-1) < self.epsilon, 0, 1)
+        gt   = np.where(    scan_labels.cpu().view(-1) < self.epsilon, 0, 1)
 
+        # precision, recall, f1, uIoU = util.calculate_metrics(gt, pred)
+
+        # bm = util.binary_metrics(gt=gt, pred=pred)      
+        # log_message = (
+        #     f"mIoU: {bm['mIoU']:.3f} "
+        #     f"staticIoU: {bm['staticIoU']:.3f} "
+        #     f"dynamicIoU: {bm['dynamicIoU']:.3f} "
+        #     f"avg_class_acc: {bm['avg_class_acc']:.3f} "
+        #     f"point_acc: {bm['point_acc']:.3f} "
+        #     f"precision: {precision:.3f} "
+        #     f"recall: {recall:.3f} "
+        #     f"f1: {f1:.3f} "
+        # )
+        # rospy.loginfo(log_message)
+        ### <- mIoU ends
+
+        # predicted_scan_labels = torch.where(predicted_scan_labels < 0.84, torch.tensor(0), torch.tensor(1))
 
         ''' Step 6: Filter the scan points based on the threshold'''
         assert len(predicted_scan_labels) == len(self.scan), f"Predicted scans labels len ({len(predicted_scan_labels)}) does not equal scan len ({len(self.scan)})"
         filtered_scan = self.scan[(predicted_scan_labels.cpu() <= self.epsilon)]
-        # filtered_scan = self.scan[(belief <= self.epsilon)]
-        # filtered_scan = self.scan[(predicted_scan_labels.cpu() <= self.epsilon) and (predicted_scan_labels.cpu() >= 0.05)]
         self.scan_pub.publish(util.to_rosmsg(filtered_scan, self.scan_msg_header))
 
         ''' Publish the transformed point cloud for debugging '''
         if self.pub_cloud_tr:
-            psl = predicted_scan_labels.cpu().data.numpy().reshape(-1,1) #belief.reshape(-1,1) #
-            scan_tr = np.hstack([scan_tr[:,:3], psl])
+            # psl = predicted_scan_labels.cpu().data.numpy().reshape(-1,1) #belief.reshape(-1,1) #
+            scan_tr = np.hstack([scan_tr[:,:3], pred.reshape(-1,1)])
             self.cloud_tr_pub.publish(util.to_rosmsg(scan_tr, self.scan_msg_header, self.odom_frame))
 
         ''' Publish the submap points for debugging '''
