@@ -32,7 +32,7 @@ LIDAR_FRAME=os_sensor
 TOPIC_ODOM=/odometry_node/odometry
 TOPIC_CLOUD=/os_cloud_node/points
 PLAY_RATE=1
-DURATION=10
+DURATION=100
 NUM_OF_EXP=1
 
 EXP_ID=test
@@ -40,7 +40,7 @@ EXP_ID=test
 SEQS=(20220420 20220601 20220608 20220629 20220714)
 
 odom_frame=map
-filter_method=( raw mos4d lts sps )
+filter_method=( sps )
 
 ######### LOG DIRECTORY #######################################################
 # create log dir
