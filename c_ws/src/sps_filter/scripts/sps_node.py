@@ -15,8 +15,6 @@ from torchmetrics import R2Score
 
 from sps.datasets import util
 
-# from mapmos.mapping import VoxelHashMap
-
 class SPS():
     def __init__(self):
         rospy.init_node('Stable_Points_Segmentation_node')
@@ -26,13 +24,12 @@ class SPS():
         filtered_cloud_topic = rospy.get_param('~filtered_cloud', "/cloud_filtered")
         predicted_pose_topic = rospy.get_param('~predicted_pose', "/odometry_node/odometry_estimate")
 
-        weights_pth = rospy.get_param('~model_weights_pth', "/sps/tb_logs/SPS_ME_Union/version_39/checkpoints/last.ckpt")
+        weights_pth = rospy.get_param('~model_weights_pth', "/sps/best_models/420_601.ckpt")
 
-        self.odom_frame    = rospy.get_param('~odom_frame', "map")
-        self.epsilon       = rospy.get_param('~epsilon', 0.84)
-        self.use_gt_labels = rospy.get_param('~use_gt_labels', False)
-        self.pub_submap    = rospy.get_param('~pub_submap', True)
-        self.pub_cloud_tr  = rospy.get_param('~pub_cloud_tr', True)
+        self.odom_frame    = rospy.get_param( '~odom_frame'   , "map" )
+        self.epsilon       = rospy.get_param( '~epsilon'      , 0.84  )
+        self.pub_submap    = rospy.get_param( '~pub_submap'   , True  )
+        self.pub_cloud_tr  = rospy.get_param( '~pub_cloud_tr' , True  )
 
         ''' Subscribe to ROS topics '''
         odom_sub = message_filters.Subscriber(predicted_pose_topic, Odometry)
@@ -55,8 +52,6 @@ class SPS():
 
         ''' Load configs '''
         cfg = torch.load(weights_pth)["hyper_parameters"]
-        cfg['DATA']['NUM_WORKER'] = 6
-        # cfg["MODEL"]["VOXEL_SIZE"] = 0.2
         rospy.loginfo(cfg)
 
         ''' Load the model '''
@@ -64,11 +59,6 @@ class SPS():
 
         ''' Get VOXEL_SIZE for quantization '''
         self.ds = cfg["MODEL"]["VOXEL_SIZE"]
-
-        # self.belief_scan_only = VoxelHashMap(
-        #     voxel_size=0.2,
-        #     max_distance=40,
-        # )
 
         ''' Get available device '''
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -89,9 +79,6 @@ class SPS():
         self.scan = None
         self.scan_msg_header = None
         self.scan_received = False
-
-        ''' Create a lock '''
-        # self.lock = threading.Lock()
 
         rospy.spin()
 
@@ -128,19 +115,7 @@ class SPS():
         prune_time = time.time() - prune_start_time
 
         ''' Step 4: Infer the stability labels'''
-        if self.use_gt_labels:
-            rospy.logwarn("The model inference is disabled, and ground truth labels are being used.")
-            predicted_scan_labels, infer_time = scan_labels.view(-1), 0.001
-        else:
-            predicted_scan_labels, infer_time = util.infer(scan_points, submap_points, self.model)
-
-        # Probabilistic volumetric fusion with scan prediction only
-        # predicted_scan_labels = predicted_scan_labels.detach().cpu().numpy().astype(np.float64)
-        # pvb_start_time = time.time()
-        # self.belief_scan_only.update_belief(scan_points.to('cpu'), predicted_scan_labels)
-        # belief = self.belief_scan_only.get_belief(scan_points.to('cpu'))
-        # times_belief_scan_only = time.time() - pvb_start_time
-
+        predicted_scan_labels, infer_time = util.infer(scan_points, submap_points, self.model)
 
         ''' Step 5: Calculate loss and r2 '''
         loss = self.loss(predicted_scan_labels.view(-1), scan_labels.view(-1))
@@ -154,23 +129,17 @@ class SPS():
         pred = np.where(predicted_scan_labels.view(-1) < self.epsilon, 0, 1)
         gt   = np.where(    scan_labels.cpu().view(-1) < self.epsilon, 0, 1)
 
-        # precision, recall, f1, uIoU = util.calculate_metrics(gt, pred)
+        precision, recall, f1, accuracy, dIoU = util.calculate_metrics(gt, pred)
 
-        # bm = util.binary_metrics(gt=gt, pred=pred)      
-        # log_message = (
-        #     f"mIoU: {bm['mIoU']:.3f} "
-        #     f"staticIoU: {bm['staticIoU']:.3f} "
-        #     f"dynamicIoU: {bm['dynamicIoU']:.3f} "
-        #     f"avg_class_acc: {bm['avg_class_acc']:.3f} "
-        #     f"point_acc: {bm['point_acc']:.3f} "
-        #     f"precision: {precision:.3f} "
-        #     f"recall: {recall:.3f} "
-        #     f"f1: {f1:.3f} "
-        # )
-        # rospy.loginfo(log_message)
+        log_message = (
+            f"dIoU: {dIoU:.3f} "
+            f"accuracy: {accuracy:.3f} "
+            f"precision: {precision:.3f} "
+            f"recall: {recall:.3f} "
+            f"f1: {f1:.3f} "
+        )
+        rospy.loginfo(log_message)
         ### <- mIoU ends
-
-        # predicted_scan_labels = torch.where(predicted_scan_labels < 0.84, torch.tensor(0), torch.tensor(1))
 
         ''' Step 6: Filter the scan points based on the threshold'''
         assert len(predicted_scan_labels) == len(self.scan), f"Predicted scans labels len ({len(predicted_scan_labels)}) does not equal scan len ({len(self.scan)})"
@@ -179,7 +148,6 @@ class SPS():
 
         ''' Publish the transformed point cloud for debugging '''
         if self.pub_cloud_tr:
-            # psl = predicted_scan_labels.cpu().data.numpy().reshape(-1,1) #belief.reshape(-1,1) #
             scan_tr = np.hstack([scan_tr[:,:3], pred.reshape(-1,1)])
             self.cloud_tr_pub.publish(util.to_rosmsg(scan_tr, self.scan_msg_header, self.odom_frame))
 
@@ -195,24 +163,15 @@ class SPS():
         elapsed_time = end_time - start_time
         hz = lambda t: 1 / t if t else 0
 
-        # belief_avg = np.sum(belief)/len(belief)
-        # non_belief_avg = np.sum(predicted_scan_labels)/len(predicted_scan_labels)
-
         log_message = (
             f"T: {elapsed_time:.3f} [{hz(elapsed_time):.2f} Hz] "
             f"P: {prune_time:.3f} [{hz(prune_time):.2f} Hz] "
             f"I: {infer_time:.3f} [{hz(infer_time):.2f} Hz] "
-            # f"VB: {times_belief_scan_only:.3f} [{hz(times_belief_scan_only):.2f} Hz] "
             f"L: {loss:.3f} r2: {r2:.3f} "
             f"N: {len(self.scan):d} n: {len(filtered_scan):d} "
             f"S: {len_scan_coord:d} M: {len(submap_labels):d} "
-            # f"B: {belief_avg:.3f} NB: {non_belief_avg:.3f} "
         )
         rospy.loginfo(log_message)
-
-        # Clean up
-        # self.belief_scan_only.remove_voxels_far_from_location(transformation_matrix[:3,3])
-
 
 if __name__ == '__main__':
     SPS_node = SPS()

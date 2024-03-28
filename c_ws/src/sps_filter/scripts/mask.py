@@ -15,8 +15,6 @@ from torchmetrics import R2Score
 
 from sps.datasets import util
 
-# from mapmos.mapping import VoxelHashMap
-
 class SPS():
     def __init__(self):
         rospy.init_node('Stable_Points_Segmentation_node')
@@ -30,7 +28,6 @@ class SPS():
 
         self.odom_frame    = rospy.get_param('~odom_frame', "map")
         self.epsilon       = rospy.get_param('~epsilon', 0.84)
-        self.use_gt_labels = rospy.get_param('~use_gt_labels', False)
         self.pub_submap    = rospy.get_param('~pub_submap', True)
         self.pub_cloud_tr  = rospy.get_param('~pub_cloud_tr', True)
 
@@ -55,8 +52,6 @@ class SPS():
 
         ''' Load configs '''
         cfg = torch.load(weights_pth)["hyper_parameters"]
-        cfg['DATA']['NUM_WORKER'] = 6
-        # cfg["MODEL"]["VOXEL_SIZE"] = 0.2
         rospy.loginfo(cfg)
 
         ''' Load the model '''
@@ -64,11 +59,6 @@ class SPS():
 
         ''' Get VOXEL_SIZE for quantization '''
         self.ds = cfg["MODEL"]["VOXEL_SIZE"]
-
-        # self.belief_scan_only = VoxelHashMap(
-        #     voxel_size=0.2,
-        #     max_distance=40,
-        # )
 
         ''' Get available device '''
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -89,9 +79,6 @@ class SPS():
         self.scan = None
         self.scan_msg_header = None
         self.scan_received = False
-
-        ''' Create a lock '''
-        # self.lock = threading.Lock()
 
         rospy.spin()
 
@@ -158,9 +145,6 @@ class SPS():
             f"S: {len_scan_coord:d} M: {len(submap_labels):d} "
         )
         rospy.loginfo(log_message)
-
-        # Clean up
-        # self.belief_scan_only.remove_voxels_far_from_location(transformation_matrix[:3,3])
 
 
 if __name__ == '__main__':

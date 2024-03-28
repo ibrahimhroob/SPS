@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 
+import yaml
 import torch
 import click
 from pytorch_lightning import Trainer
 
 # import sps.datasets.datasets_nclt as datasets
-import sps.datasets.datasets2test as datasets
+import sps.datasets.blt_dataset as datasets
 import sps.models.models as models
+
+# Constants
+DEFAULT_CONFIG_PATH = "./config/config.yaml"
 
 @click.command()
 ### Add your options here
@@ -15,7 +19,7 @@ import sps.models.models as models
     "-w",
     type=str,
     help="path to checkpoint file (.ckpt) to do inference.",
-    default='/sps/best_models/420_601_608.chpt',
+    default='/sps/best_models/420_601.ckpt',
     # required=True,
 )
 @click.option(
@@ -23,25 +27,31 @@ import sps.models.models as models
     "-seq",
     type=str,
     help="Run inference on specific sequences. Otherwise, test split from config is used.",
-    default= ['202'], #['20220420', '20220601', '20220608', '20220629', '20220714'],
-    multiple=True,
+    default=None,
+    multiple=False,
 )
-def main(weights, sequence):
+@click.option(
+    "--config",
+    "-c",
+    type=str,
+    help="Path to the config file (.yaml)",
+    default=DEFAULT_CONFIG_PATH,
+)
+def main(weights, sequence, config):
 
-    cfg = torch.load(weights)["hyper_parameters"]
+    cfg = yaml.safe_load(open(config))
 
     if sequence:
         cfg["DATA"]["SPLIT"]["TEST"] = list(sequence)
+    
+    print('Test seq: ', cfg["DATA"]["SPLIT"]["TEST"])
+    assert len(cfg["DATA"]["SPLIT"]["TEST"]) == 1, "Only one test SEQ is allowed at a time!"
 
     cfg["TRAIN"]["BATCH_SIZE"] = 1
 
     # Load data and model
-    cfg["DATA"]["SPLIT"]["TRAIN"] = cfg["DATA"]["SPLIT"]["TEST"]
-    cfg["DATA"]["SPLIT"]["VAL"] = cfg["DATA"]["SPLIT"]["TEST"]
-    data = datasets.TestModule(cfg)
+    data = datasets.BacchusModule(cfg, test=True)
     data.setup()
-
-    print(len(data.test_scans))
 
     ckpt = torch.load(weights)
     model = models.SPSNet(cfg, len(data.test_scans))
@@ -56,6 +66,21 @@ def main(weights, sequence):
     # Infer!
     trainer.predict(model, data.test_dataloader())
 
+    # Print metrics
+    metrics = {
+        "Loss": model.predict_loss,
+        "R2": model.predict_r2,
+        "dIoU": model.dIoU,
+        "Precision": model.precision,
+        "Recall": model.recall,
+        "F1": model.F1
+    }
 
+    print('\n########## Inference Metrics ##########')
+    for metric_name, metric_values in metrics.items():
+        mean_value = sum(metric_values) / len(metric_values)
+        space_fill = '.' * (12 - len(metric_name))  # Calculate the number of dots needed for filling
+        print(f'{metric_name} {space_fill} {mean_value:.3f}')  # Fixed width for metric names
+        
 if __name__ == "__main__":
     main()

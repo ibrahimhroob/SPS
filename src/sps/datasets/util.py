@@ -160,17 +160,15 @@ def add_timestamp(data, stamp, device):
     return data
 
 
-def infer(scan_points, submap_points, model, device="cuda",  discrepancy=True):
+def infer(scan_points, submap_points, model, device="cuda"):
     start_time = time.time()
     assert scan_points.size(-1) == 3, f"Expected 3 columns, but the scan tensor has {scan_points.size(-1)} columns."
     scan_points = add_timestamp(scan_points, SCAN_TIMESTAMP, device)
-    scan_submap_data = scan_points
 
-    if discrepancy:
-        assert submap_points.size(-1) == 3, f"Expected 3 columns, but the submap tensor has {submap_points.size(-1)} columns."
-        submap_points = add_timestamp(submap_points, MAP_TIMESTAMP, device)
-        ''' Combine scans and map into the same tensor '''
-        scan_submap_data = torch.vstack([scan_points, submap_points])
+    assert submap_points.size(-1) == 3, f"Expected 3 columns, but the submap tensor has {submap_points.size(-1)} columns."
+    submap_points = add_timestamp(submap_points, MAP_TIMESTAMP, device)
+    ''' Combine scans and map into the same tensor '''
+    scan_submap_data = torch.vstack([scan_points, submap_points])
 
     batch = torch.zeros(len(scan_submap_data), 1, dtype=scan_submap_data.dtype).to(device)
     tensor = torch.hstack([batch, scan_submap_data]).reshape(-1, 5)

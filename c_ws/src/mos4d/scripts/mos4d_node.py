@@ -27,7 +27,7 @@ class MOS4D():
         weights_pth = rospy.get_param('~model_weights_pth', "/sps/c_ws/src/mos4d/checkpoints/10_scans.ckpt")
 
         self.odom_frame = rospy.get_param('~odom_frame', "map")
-        self.filter     = rospy.get_param('~filter', True)
+        self.filter     = rospy.get_param('~filter'    , True )
 
         # Use regular expressions to find the integer
         self.buffer_size = re.search(r'(\d+)_scans\.ckpt', weights_pth)
@@ -53,7 +53,7 @@ class MOS4D():
         self.lidar_buffer = []
 
         ''' Load the model '''
-        self.model = self.load_model(weights_pth)
+        self.model = self.load_model(weights_pth, voxel_size = 0.2)
 
         self.scan_index = 0
 
@@ -115,6 +115,7 @@ class MOS4D():
         # Add batch index and pass through the model
         coordinates = torch.hstack([torch.zeros(len(merged_scans)).reshape(-1, 1).type_as(merged_scans), merged_scans])
         predicted_logits = self.model.forward(coordinates) if self.filter else torch.zeros(len(merged_scans))
+        torch.cuda.empty_cache()
 
         end_time = time.time()
         elapsed_time = end_time - start_time
@@ -130,21 +131,16 @@ class MOS4D():
         ### -> mIoU start
         pred = scan_labels
 
-        # precision, recall, f1, accuracy, uIoU = util.calculate_metrics(gt, pred)
+        precision, recall, f1, accuracy, dIoU = util.calculate_metrics(gt, pred)
 
-        # bm = util.binary_metrics(gt=gt, pred=pred)      
-        # log_message = (
-        #     f"mIoU: {bm['mIoU']:.3f} "
-        #     f"staticIoU: {bm['staticIoU']:.3f} "
-        #     f"dynamicIoU: {bm['dynamicIoU']:.3f} "
-        #     f"avg_class_acc: {bm['avg_class_acc']:.3f} "
-        #     f"point_acc: {bm['point_acc']:.3f} "
-        #     f"precision: {precision:.3f} "
-        #     f"recall: {recall:.3f} "
-        #     f"f1: {f1:.3f} "
-        #     f"accuracy: {accuracy:.3f} "
-        # )
-        # rospy.loginfo(log_message)
+        log_message = (
+            f"dIoU: {dIoU:.3f} "
+            f"accuracy: {accuracy:.3f} "
+            f"precision: {precision:.3f} "
+            f"recall: {recall:.3f} "
+            f"f1: {f1:.3f} "
+        )
+        rospy.loginfo(log_message)
         ### <- mIoU ends
 
         hz = lambda t: 1 / t if t else 0

@@ -1,0 +1,17 @@
+<launch>
+
+    <arg name="raw_cloud" default="/os_cloud_node/points" />
+    <arg name="filtered_cloud" default="/cloud_filtered" />
+    <arg name="epsilon_0" default="0.00" />
+    <arg name="epsilon_1" default="0.84" />
+    <arg name="lidar" default="hdl-32" />
+
+
+    <node pkg="lts_filter" type="stability_filter.py" name="pointcloud_stability_inference" output="screen">
+        <param name="raw_cloud" type="string" value="$(arg raw_cloud)"/>
+        <param name="filtered_cloud" type="string" value="$(arg filtered_cloud)"/>
+        <param name="lidar" type="string" value="$(arg lidar)"/>
+        <param name="epsilon_0" type="double" value="$(arg epsilon_0)"/>
+        <param name="epsilon_1" type="double" value="$(arg epsilon_1)"/>
+    </node>
+</launch>

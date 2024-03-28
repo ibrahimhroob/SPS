@@ -6,6 +6,7 @@ import numpy as np
 import torch.nn as nn
 import pytorch_lightning as pl
 import MinkowskiEngine as ME
+from sps.datasets import util 
 from sps.models.MinkowskiEngine.customminkunet import CustomMinkUNet
 from torchmetrics import R2Score
 
@@ -30,17 +31,25 @@ class SPSModel(nn.Module):
 
 
 class SPSNet(pl.LightningModule):
-    def __init__(self, hparams: dict, data_size = 0):
+    def __init__(self, hparams: dict, data_size = 0, save_vis = False):
         super().__init__()
         self.save_hyperparameters(hparams)
         self.model = SPSModel(hparams['MODEL']['VOXEL_SIZE'])
-        self.loss = nn.MSELoss()
-        self.r2score = R2Score()
+        self.save_vis = save_vis
 
         self.data_dir = str(os.environ.get("DATA"))
         self.test_seq = hparams["DATA"]["SPLIT"]["TEST"]
+        self.epsilon = hparams['FILTER']['THRESHOLD']
+
+        self.loss = nn.MSELoss()
+        self.r2score = R2Score()
+
         self.predict_loss = []
         self.predict_r2 = []
+        self.dIoU = []
+        self.precision = [] 
+        self.recall = [] 
+        self.F1 = []
 
         self.data_size = data_size
 
@@ -63,28 +72,45 @@ class SPSNet(pl.LightningModule):
     def training_step(self, batch, batch_idx, dataloader_idx=0):
         loss, r2 = self.common_step(batch)
         self.log("train_loss", loss.item(), on_step=True, prog_bar=True)
-        self.log("train_r2", r2.item(), on_step=True, prog_bar=True)
+        self.log("train_r2", r2.item(), on_step=True, prog_bar=False)
         return {"loss": loss, "val_r2": r2}
 
     def validation_step(self, batch, batch_idx):
         loss, r2 = self.common_step(batch)
         self.log("val_loss", loss.item(), on_step=True, prog_bar=True)
-        self.log("val_r2", r2.item(), on_step=True, prog_bar=True)
+        self.log("val_r2", r2.item(), on_step=True, prog_bar=False)
         return {"val_loss": loss, "val_r2": r2}
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
-        assert len(self.test_seq) == 1, "Length of self.test_seq is greater than 1"
-
         coordinates = batch[:, :5].reshape(-1, 5)
         gt_labels = batch[:, 5].reshape(-1)
         scan_indices = np.where(coordinates[:, 4].cpu().data.numpy() == 1)[0]
         scores = self.model(coordinates)
-        loss = self.loss(scores[scan_indices], gt_labels[scan_indices])
-        r2 = self.r2score(scores[scan_indices], gt_labels[scan_indices])
+        scan_gt_labels = gt_labels[scan_indices]
+        loss = self.loss(scores[scan_indices],  scan_gt_labels)
+        r2 = self.r2score(scores[scan_indices], scan_gt_labels)
 
         self.predict_loss.append(loss)
         self.predict_r2.append(r2)
 
+        ### -> mIoU start
+        pred = np.where(scores[scan_indices].cpu().view(-1) < self.epsilon, 0, 1)
+        gt   = np.where(      scan_gt_labels.cpu().view(-1) < self.epsilon, 0, 1)
+
+        precision, recall, f1, accuracy, dIoU = util.calculate_metrics(gt, pred)
+        self.dIoU.append(dIoU)
+        self.precision.append(precision)
+        self.recall.append(recall)
+        self.F1.append(f1)
+        ### <- mIoU ends
+
+
+        if self.save_vis:
+            self.__save_vis(batch, batch_idx, scores, scan_indices)
+
+        torch.cuda.empty_cache()
+
+    def __save_vis(self, batch, batch_idx, scores, scan_indices):
         # create log_dir to save some visuals 
         s_path = os.path.join(
             self.data_dir,
@@ -124,16 +150,6 @@ class SPSNet(pl.LightningModule):
             map_pth  = os.path.join(m_path, str(batch_idx) + '_' + str(b) + '.npy')
             np.save(scan_pth, scan_data)
             np.save(map_pth, map_data)
-
-        if batch_idx + 1 >= self.data_size: # Ugly hack!!
-            loss_mean = sum(self.predict_loss) / len(self.predict_loss)
-            r2_mean = sum(self.predict_r2) / len(self.predict_r2)
-            print('Loss mean: %f' % loss_mean)
-            print('R2 mean: %f' % r2_mean)
-
-        torch.cuda.empty_cache()
-
-
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.hparams['TRAIN']['LR'], 

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Training script for SPSNet model.
+Training script for SPS model.
+Authors: Ibrahim Hroob and Benedikt Mersch
 """
 
 import os
@@ -10,7 +11,7 @@ from pytorch_lightning import Trainer
 from pytorch_lightning import loggers as pl_loggers
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 
-import sps.datasets.datasets2 as datasets
+import sps.datasets.blt_dataset as datasets
 import sps.models.models as models
 
 # Constants

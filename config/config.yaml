@@ -1,11 +1,10 @@
 EXPERIMENT:
-  ID: SPS_lts # Long-Term Object Segmentation OR 5DMOS
+  ID: BLT
 
 ##Data
 DATA:
   SHUFFLE: True
   NUM_WORKER: 8
-  ME_PRUNE: False
   SPLIT:
     TRAIN:
       - '20220420'
@@ -14,7 +13,6 @@ DATA:
       - '20220608'
     TEST:
       - '20220629'
-      - '20220714'
 
 ##Training
 TRAIN:
@@ -24,10 +22,13 @@ TRAIN:
   LR_EPOCH: 1
   LR_DECAY: 0.99
   WEIGHT_DECAY: 0.0001
-  BATCH_SIZE: 4
+  BATCH_SIZE: 2
   AUGMENTATION: True
-  DISCREPANCY: False
 
 ##Network
 MODEL:
   VOXEL_SIZE: 0.1 # Used for discretization in x,y,z when creating a sparse tensor 
+
+##Unstable points filter 
+FILTER:
+  THRESHOLD: 0.84
