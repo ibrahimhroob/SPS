@@ -7,6 +7,7 @@
     <arg name="epsilon"           default="0.84" />
 
     <arg name="model_weights_pth" default="/sps/best_models/420_601.ckpt" />
+    <arg name="config_pth"        default="/sps/config/config.yaml" />
 
     <node pkg="sps_filter" type="sps_node.py" name="Stable_Points_Segmentation" output="screen">
         <param name="raw_cloud"         type="string" value="$(arg raw_cloud)"/>
@@ -14,6 +15,7 @@
         <param name="predicted_pose"    type="string" value="$(arg predicted_pose)"/>
         <param name="odom_frame"        type="string" value="$(arg odom_frame)"/>
         <param name="model_weights_pth" type="string" value="$(arg model_weights_pth)"/>
+        <param name="config_pth"        type="string" value="$(arg config_pth)"/>
         <param name="epsilon"           type="double" value="$(arg epsilon)"/>
     </node>
 

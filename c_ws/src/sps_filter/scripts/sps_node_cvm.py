@@ -3,6 +3,7 @@
 #here I add an implementation of a very simple constant velocity model 
 
 import time
+import yaml
 import torch
 import numpy as np
 
@@ -20,11 +21,12 @@ class SPS():
         rospy.init_node('Stable_Points_Segmentation_node')
 
         ''' Retrieve parameters from ROS parameter server '''
-        raw_cloud_topic      = rospy.get_param('~raw_cloud', '/os1_points_cropped') #"/os_cloud_node/points")
+        raw_cloud_topic      = rospy.get_param('~raw_cloud', "/os_cloud_node/points")
         filtered_cloud_topic = rospy.get_param('~filtered_cloud', "/cloud_filtered")
         corrected_pose_topic = rospy.get_param('~corrected_pose', "/odometry_node/odometry")
 
         weights_pth = rospy.get_param('~model_weights_pth', "/sps/best_models/420_601.ckpt")
+        config_pth = rospy.get_param('~config_pth', "/sps/config/config.yaml")
 
         self.epsilon       = rospy.get_param('~epsilon'      , 0.84  )
         self.odom_frame    = rospy.get_param('~odom_frame'   , 'map' )
@@ -47,8 +49,8 @@ class SPS():
         rospy.loginfo('epsilon:        %f', self.epsilon)
 
         ''' Load configs '''
-        cfg = torch.load(weights_pth)["hyper_parameters"]
-        cfg['DATA']['NUM_WORKER'] = 6
+        cfg = yaml.safe_load(open(config_pth))
+
         rospy.loginfo(cfg)
 
         ''' Load the model '''
