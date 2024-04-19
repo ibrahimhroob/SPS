@@ -98,7 +98,7 @@ Then, the localization experiment can be run using a single command:
 bash exp_pipeline/loc_exp_general.bash
 ```
 
-In order to calculate the localization metrics please instal [evo library](https://github.com/MichaelGrupp/evo)
+In order to calculate the localization metrics please install [evo library](https://github.com/MichaelGrupp/evo)
 
 
 ### Data
