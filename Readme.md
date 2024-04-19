@@ -81,8 +81,28 @@ This command will generate reports for the following metrics:
 - Recall
 - F1 score
 
+### Localization
+Install and build the following packages in your `catkin_ws`:
+```bash
+cd </path/to/catkin_ws>/src
+git clone https://github.com/koide3/ndt_omp
+git clone https://github.com/SMRT-AIST/fast_gicp --recursive 
+git clone https://github.com/koide3/hdl_global_localization 
+git clone --branch SPS https://github.com/ibrahimhroob/hdl_localization.git
+cd ..
+catkin build
+source devel/setup.bash
+```
+Then, the localization experiment can be run using a single command:
+```bash
+bash exp_pipeline/loc_exp_general.bash
+```
+
+In order to calculate the localization metrics please instal [evo library](https://github.com/MichaelGrupp/evo)
+
+
 ### Data
-You can download the post-processed and labeled [BLT dataset](https://drive.google.com/file/d/1beRMNbg2sRSOzMpRuI8Eh409girAdlck/view?usp=drive_link) and the parking lot of [NCLT dataset](https://drive.google.com/file/d/16T-EkoZnDHH4xIIj7PKuNXJ_LMl9x3Pm/view?usp=drive_link) from the proveded links.
+You can download the post-processed and labelled [BLT dataset](https://drive.google.com/file/d/1beRMNbg2sRSOzMpRuI8Eh409girAdlck/view?usp=drive_link) and the parking lot of [NCLT dataset](https://drive.google.com/file/d/16T-EkoZnDHH4xIIj7PKuNXJ_LMl9x3Pm/view?usp=drive_link) from the proveded links.
 
 The [weights](https://drive.google.com/file/d/1Ic80AvYh9Jf77cBMp2SXy8y7y-YExprC/view?usp=drive_link) of our pre-trained model can be downloaded as well.
 
