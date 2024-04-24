@@ -102,9 +102,9 @@ In order to calculate the localization metrics please install [evo library](http
 
 
 ### Data
-You can download the post-processed and labelled [BLT dataset](https://drive.google.com/file/d/1beRMNbg2sRSOzMpRuI8Eh409girAdlck/view?usp=drive_link) and the parking lot of [NCLT dataset](https://drive.google.com/file/d/16T-EkoZnDHH4xIIj7PKuNXJ_LMl9x3Pm/view?usp=drive_link) from the proveded links.
+You can download the post-processed and labelled [BLT dataset](https://www.ipb.uni-bonn.de/html/projects/hroob2024ral/BLT.zip) and the parking lot of [NCLT dataset](https://www.ipb.uni-bonn.de/html/projects/hroob2024ral/NCLT.zip) from the proveded links.
 
-The [weights](https://drive.google.com/file/d/1Ic80AvYh9Jf77cBMp2SXy8y7y-YExprC/view?usp=drive_link) of our pre-trained model can be downloaded as well.
+The [weights](https://www.ipb.uni-bonn.de/html/projects/hroob2024ral/420_601.ckpt) of our pre-trained model can be downloaded as well.
 
 Here the general structure of the dataset: 
 ```
