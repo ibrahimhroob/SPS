@@ -4,7 +4,7 @@ EXPERIMENT:
 ##Data
 DATA:
   SHUFFLE: True
-  NUM_WORKER: 8
+  NUM_WORKER: 16
   SPLIT:
     TRAIN:
       - '20220420'
@@ -12,17 +12,17 @@ DATA:
     VAL:
       - '20220608'
     TEST:
-      - '20220629'
+      - '20220420'
+      # - '20220629'
 
 ##Training
 TRAIN:
-  MAP: base_map.asc.npy
   MAX_EPOCH: 80
   LR: 0.00007
   LR_EPOCH: 1
   LR_DECAY: 0.99
   WEIGHT_DECAY: 0.0001
-  BATCH_SIZE: 2
+  BATCH_SIZE: 64
   AUGMENTATION: True
 
 ##Network

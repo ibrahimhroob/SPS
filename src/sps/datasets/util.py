@@ -18,7 +18,6 @@ import MinkowskiEngine as ME
 
 ''' Constants '''
 SCAN_TIMESTAMP = 1
-MAP_TIMESTAMP = 0
 
 class CoordsFeatStruct:
     def __init__(self, cloud_coords, features):
@@ -160,18 +159,13 @@ def add_timestamp(data, stamp, device):
     return data
 
 
-def infer(scan_points, submap_points, model, device="cuda"):
+def infer(scan_points, model, device="cuda"):
     start_time = time.time()
     assert scan_points.size(-1) == 3, f"Expected 3 columns, but the scan tensor has {scan_points.size(-1)} columns."
     scan_points = add_timestamp(scan_points, SCAN_TIMESTAMP, device)
 
-    assert submap_points.size(-1) == 3, f"Expected 3 columns, but the submap tensor has {submap_points.size(-1)} columns."
-    submap_points = add_timestamp(submap_points, MAP_TIMESTAMP, device)
-    ''' Combine scans and map into the same tensor '''
-    scan_submap_data = torch.vstack([scan_points, submap_points])
-
-    batch = torch.zeros(len(scan_submap_data), 1, dtype=scan_submap_data.dtype).to(device)
-    tensor = torch.hstack([batch, scan_submap_data]).reshape(-1, 5)
+    batch = torch.zeros(len(scan_points), 1, dtype=scan_points.dtype).to(device)
+    tensor = torch.hstack([batch, scan_points]).reshape(-1, 5)
 
     with torch.no_grad():
         scores = model.forward(tensor.cuda())  

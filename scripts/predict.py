@@ -19,7 +19,7 @@ DEFAULT_CONFIG_PATH = "./config/config.yaml"
     "-w",
     type=str,
     help="path to checkpoint file (.ckpt) to do inference.",
-    default='/sps/best_models/420_601.ckpt',
+    default='/sps/tb_logs/BLT/version_4/checkpoints/last.ckpt',
     # required=True,
 )
 @click.option(
@@ -54,7 +54,7 @@ def main(weights, sequence, config):
     data.setup()
 
     ckpt = torch.load(weights)
-    model = models.SPSNet(cfg, len(data.test_scans))
+    model = models.SPSNet(cfg, len(data.test_scans), save_vis=True)
     model.load_state_dict(ckpt["state_dict"])
     model = model.cuda()
     model.eval()
@@ -71,16 +71,17 @@ def main(weights, sequence, config):
         "Loss": model.predict_loss,
         "R2": model.predict_r2,
         "dIoU": model.dIoU,
-        "Precision": model.precision,
+        "Precision": model.precis,
         "Recall": model.recall,
-        "F1": model.F1
+        "F1": model.F1,
+        "Frame_time": model.frame_time
     }
 
     print('\n########## Inference Metrics ##########')
     for metric_name, metric_values in metrics.items():
         mean_value = sum(metric_values) / len(metric_values)
         space_fill = '.' * (12 - len(metric_name))  # Calculate the number of dots needed for filling
-        print(f'{metric_name} {space_fill} {mean_value:.3f}')  # Fixed width for metric names
+        print(f'{metric_name} {space_fill} {mean_value:.5f}')  # Fixed width for metric names
         
 if __name__ == "__main__":
     main()

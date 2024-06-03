@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import time
 import torch
 import numpy as np
 import torch.nn as nn
@@ -47,9 +48,10 @@ class SPSNet(pl.LightningModule):
         self.predict_loss = []
         self.predict_r2 = []
         self.dIoU = []
-        self.precision = [] 
+        self.precis = [] 
         self.recall = [] 
         self.F1 = []
+        self.frame_time = []
 
         self.data_size = data_size
 
@@ -82,10 +84,12 @@ class SPSNet(pl.LightningModule):
         return {"val_loss": loss, "val_r2": r2}
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
+        start_time = time.time()
         coordinates = batch[:, :5].reshape(-1, 5)
         gt_labels = batch[:, 5].reshape(-1)
         scan_indices = np.where(coordinates[:, 4].cpu().data.numpy() == 1)[0]
         scores = self.model(coordinates)
+        self.frame_time.append(time.time()-start_time)
         scan_gt_labels = gt_labels[scan_indices]
         loss = self.loss(scores[scan_indices],  scan_gt_labels)
         r2 = self.r2score(scores[scan_indices], scan_gt_labels)
@@ -97,9 +101,9 @@ class SPSNet(pl.LightningModule):
         pred = np.where(scores[scan_indices].cpu().view(-1) < self.epsilon, 0, 1)
         gt   = np.where(      scan_gt_labels.cpu().view(-1) < self.epsilon, 0, 1)
 
-        precision, recall, f1, accuracy, dIoU = util.calculate_metrics(gt, pred)
+        p, recall, f1, accuracy, dIoU = util.calculate_metrics(gt, pred)
         self.dIoU.append(dIoU)
-        self.precision.append(precision)
+        self.precis.append(p)
         self.recall.append(recall)
         self.F1.append(f1)
         ### <- mIoU ends
@@ -146,9 +150,9 @@ class SPSNet(pl.LightningModule):
             scan_data = np.column_stack((scan_points, scan_labels_gt, scan_labels_hat))
             map_data = np.column_stack((map_points, map_labels_gt))
 
-            scan_pth = os.path.join(s_path, str(batch_idx) + '_' + str(b) + '.npy')
+            scan_pth = os.path.join(s_path, str(batch_idx) + '_' + str(b) + '.asc')
             map_pth  = os.path.join(m_path, str(batch_idx) + '_' + str(b) + '.npy')
-            np.save(scan_pth, scan_data)
+            np.savetxt(scan_pth, scan_data, fmt="%.3f")
             np.save(map_pth, map_data)
 
     def configure_optimizers(self):

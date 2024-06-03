@@ -7,7 +7,7 @@ ENV TORCH_CUDA_ARCH_LIST="6.0 6.1 6.2 7.0 7.2 7.5 8.0 8.6"
 ENV TORCH_NVCC_FLAGS="-Xfatbin -compress-all"
 
 # For faster build, use more jobs.
-ENV MAX_JOBS=6
+ENV MAX_JOBS=16
 
 ENV ROS_DISTRO noetic
 
